@@ -1,0 +1,10 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/RecipeDetailPage",
+    "pages/SearchPage",
+    "pages/SettingsPage",
+    "pages/MyFavoritesPage",
+    "pages/MyRecipesPage"
+  ]
+}

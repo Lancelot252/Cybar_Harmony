@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Cybar - 鸡尾酒配方和酒精度计算应用"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Cybar应用主入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Cybar"
+    },
+    {
+      "name": "internet_permission_reason",
+      "value": "需要访问网络以获取配方数据、用户认证和AI功能"
+    }
+  ]
+}
