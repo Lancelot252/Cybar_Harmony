@@ -85,13 +85,27 @@ interface HeaderOptions {
 type StateChangeListener = () => void;
 
 /**
+ * ==================== 环境配置 ====================
+ * 切换环境：注释/取消注释下面的 BASE_URL 即可
+ * =================================================
+ */
+
+// ⚠️ 开发环境 - 本地调试（使用时取消注释这行，注释掉生产环境）
+const BASE_URL: string = 'http://172.26.19.215:8080';
+
+// ⚠️ 生产环境 - 远程服务器（发布时取消注释这行，注释掉开发环境）
+// const BASE_URL: string = 'http://47.101.11.98:8080';
+
+/**
  * API服务单例类
  * 提供与后端交互的网络服务
  * 使用观察者模式通知UI更新
  */
 export default class APIService {
   private static instance: APIService;
-  private baseURL: string = 'http://47.101.11.98:8080';
+  
+  // 使用配置的baseURL
+  private baseURL: string = BASE_URL;
   private context?: common.UIAbilityContext;
   private preferences?: preferences.Preferences;
   private authCookie: string = '';
@@ -996,6 +1010,292 @@ export default class APIService {
       httpRequest.destroy();
     }
   }
+  
+  /**
+   * AI智能调酒师 - 根据口味描述生成配方
+   * @param tasteDescription 口味描述
+   * @param occasion 适用场合（可选）
+   * @param alcoholStrength 酒精强度（可选）
+   */
+  public async generateAIRecipe(
+    tasteDescription: string,
+    occasion?: string,
+    alcoholStrength?: string
+  ): Promise<AIGeneratedRecipe> {
+    const httpRequest = http.createHttp();
+    try {
+      const url = `${this.baseURL}/api/custom/generate-recipe`;
+      
+      const requestBody: AIRecipeRequest = {
+        tasteDescription: tasteDescription
+      };
+      if (occasion && occasion.length > 0) {
+        requestBody.occasion = occasion;
+      }
+      if (alcoholStrength && alcoholStrength.length > 0) {
+        requestBody.alcoholStrength = alcoholStrength;
+      }
+      
+      const requestOptions = this.createRequestOptions(
+        http.RequestMethod.POST,
+        { contentType: 'application/json' },
+        requestBody
+      );
+      
+      // 设置较长的超时时间，因为AI生成需要时间
+      requestOptions.connectTimeout = 30000;
+      requestOptions.readTimeout = 60000;
+      
+      console.info('[APIService] 正在调用AI生成配方...');
+      const response = await httpRequest.request(url, requestOptions);
+      
+      if (response.responseCode === 200) {
+        const result = response.result as object;
+        console.info('[APIService] AI配方生成成功, result:', JSON.stringify(result));
+        
+        // 服务端返回格式: { success: true, recipe: {...}, generatedAt: ... }
+        const recipeData = Reflect.get(result, 'recipe') as AIGeneratedRecipe;
+        if (recipeData) {
+          return recipeData;
+        }
+        
+        // 兼容直接返回配方的情况
+        if (Reflect.has(result, 'name') && Reflect.has(result, 'ingredients')) {
+          return result as AIGeneratedRecipe;
+        }
+        
+        throw new APIError('AI返回数据格式错误', 'PARSE_ERROR');
+      } else {
+        const errorResult = response.result as object;
+        const message = Reflect.get(errorResult, 'message') as string;
+        throw new APIError(message || 'AI生成配方失败', 'AI_GENERATE_FAILED');
+      }
+    } catch (error) {
+      console.error('[APIService] AI生成配方失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('AI生成配方请求失败，请稍后重试', 'NETWORK_ERROR');
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  /**
+   * 获取配方评分信息
+   */
+  async fetchRecipeRatings(recipeId: string): Promise<RecipeRatingResponse> {
+    const httpRequest = http.createHttp();
+    const url = `${this.baseURL}/api/recipes/${recipeId}/ratings`;
+    
+    try {
+      const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
+      console.info(`[APIService] 获取AI分析数据, URL: ${url}`);
+      const response = await httpRequest.request(url, requestOptions);
+      
+      if (response.responseCode === 200) {
+        let result: object;
+        if (typeof response.result === 'string') {
+          result = JSON.parse(response.result) as object;
+        } else {
+          result = response.result as object;
+        }
+        
+        const aiAnalysis = Reflect.get(result, 'aiAnalysis') as string | undefined;
+        console.info(`[APIService] AI分析数据: ${aiAnalysis ? '已找到' : '无数据'}`);
+        
+        return {
+          success: true,
+          hasRating: Reflect.get(result, 'hasRating') as boolean,
+          ratings: Reflect.get(result, 'ratings') as RecipeScores | undefined,
+          calculatedScore: Reflect.get(result, 'calculatedScore') as number | undefined,
+          aiAnalysis: aiAnalysis,
+          ratedAt: Reflect.get(result, 'ratedAt') as string | undefined
+        };
+      }
+      throw new APIError('获取评分失败', 'FETCH_RATINGS_FAILED');
+    } catch (error) {
+      console.error('[APIService] 获取评分失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('获取评分请求失败', 'NETWORK_ERROR');
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  /**
+   * 保存配方评分
+   */
+  async saveRecipeRatings(recipeId: string, scores: RecipeScores, aiAnalysis?: string): Promise<object> {
+    const httpRequest = http.createHttp();
+    const url = `${this.baseURL}/api/recipes/${recipeId}/ratings`;
+    
+    try {
+      const requestBody: SaveRatingsRequest = { scores: scores, aiAnalysis: aiAnalysis };
+      const requestOptions = this.createRequestOptions(
+        http.RequestMethod.POST,
+        { contentType: 'application/json' },
+        requestBody
+      );
+      const response = await httpRequest.request(url, requestOptions);
+      
+      if (response.responseCode === 200) {
+        return response.result as object;
+      }
+      const errorResult = response.result as object;
+      const message = Reflect.get(errorResult, 'message') as string;
+      throw new APIError(message || '保存评分失败', 'SAVE_RATINGS_FAILED');
+    } catch (error) {
+      console.error('[APIService] 保存评分失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('保存评分请求失败', 'NETWORK_ERROR');
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  /**
+   * AI口味分析
+   */
+  async analyzeRecipeFlavor(recipeId: string): Promise<AIAnalysisResponse> {
+    const httpRequest = http.createHttp();
+    const url = `${this.baseURL}/api/recipes/${recipeId}/ai-analyze`;
+    
+    try {
+      const emptyBody: EmptyRequest = {};
+      const requestOptions = this.createRequestOptions(
+        http.RequestMethod.POST,
+        { contentType: 'application/json' },
+        emptyBody
+      );
+      requestOptions.connectTimeout = 30000;
+      requestOptions.readTimeout = 60000;
+      
+      console.info(`[APIService] 正在进行AI口味分析, URL: ${url}`);
+      const response = await httpRequest.request(url, requestOptions);
+      
+      console.info(`[APIService] AI分析响应码: ${response.responseCode}`);
+      
+      if (response.responseCode === 200) {
+        let result: object;
+        if (typeof response.result === 'string') {
+          result = JSON.parse(response.result) as object;
+        } else {
+          result = response.result as object;
+        }
+        return {
+          success: true,
+          analysis: Reflect.get(result, 'analysis') as string,
+          analyzedAt: Reflect.get(result, 'analyzedAt') as string
+        };
+      }
+      
+      // 解析错误响应
+      let errorMessage = 'AI分析失败';
+      try {
+        let errorResult: object;
+        if (typeof response.result === 'string') {
+          errorResult = JSON.parse(response.result) as object;
+        } else {
+          errorResult = response.result as object;
+        }
+        const msg = Reflect.get(errorResult, 'message') as string;
+        if (msg) {
+          errorMessage = msg;
+        }
+      } catch (parseError) {
+        console.error('[APIService] 解析错误响应失败:', parseError);
+      }
+      console.error(`[APIService] AI分析失败: ${errorMessage}`);
+      throw new APIError(errorMessage, 'AI_ANALYZE_FAILED');
+    } catch (error) {
+      console.error('[APIService] AI分析请求异常:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      const errMsg = error instanceof Error ? error.message : 'AI分析服务暂时不可用';
+      throw new APIError(errMsg, 'AI_SERVICE_ERROR');
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+}
+
+// 评分响应接口
+export interface RecipeRatingResponse {
+  success: boolean;
+  hasRating: boolean;
+  ratings?: RecipeScores;
+  calculatedScore?: number;
+  aiAnalysis?: string;
+  ratedAt?: string;
+}
+
+// 评分数据接口
+export interface RecipeScores {
+  visual: number;      // 外观 (0-10)
+  aroma: number;       // 香气 (0-10)
+  taste: number;       // 风味 (0-10)
+  mouthfeel: number;   // 口感 (0-10)
+  finish: number;      // 余韵 (0-10)
+}
+
+// AI分析响应接口
+export interface AIAnalysisResponse {
+  success: boolean;
+  analysis: string;
+  analyzedAt: string;
+}
+
+// 保存评分请求体接口
+interface SaveRatingsRequest {
+  scores: RecipeScores;
+  aiAnalysis?: string;
+}
+
+// 空请求体接口
+interface EmptyRequest {
+  placeholder?: string;
+}
+
+// AI配方请求接口
+interface AIRecipeRequest {
+  tasteDescription: string;
+  occasion?: string;
+  alcoholStrength?: string;
+}
+
+// AI生成的配方接口
+export interface AIGeneratedRecipe {
+  name: string;
+  description: string;
+  ingredients: AIIngredient[];
+  steps: string[];
+  glassware?: string;
+  garnish?: string;
+  taste_profile?: TasteProfile;
+  tips?: string;
+  isDemo?: boolean;
+}
+
+// AI配方中的配料接口
+export interface AIIngredient {
+  name: string;
+  volume: number;
+  abv: number;
+  category?: string;
+}
+
+// 口味配置接口
+interface TasteProfile {
+  sweetness: string;
+  sourness: string;
+  bitterness: string;
+  strength: string;
 }
 
 // 导出单例实例

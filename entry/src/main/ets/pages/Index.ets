@@ -13,6 +13,7 @@ struct Index {
   @State currentTabIndex: number = 0;
   @State showSearch: boolean = false;
   @State searchText: string = '';
+  @State userProfileRefreshTrigger: number = 0; // 用于触发用户中心刷新
   
   @Builder
   TabBuilder(index: number, title: string, icon: Resource, selectedIcon: Resource) {
@@ -58,7 +59,7 @@ struct Index {
         
         // 用户中心
         TabContent() {
-          UserProfilePage()
+          UserProfilePage({ refreshTrigger: this.userProfileRefreshTrigger })
         }
         .tabBar(this.TabBuilder(3, '我的', $r('sys.symbol.person'), $r('sys.symbol.person')))
         
@@ -78,6 +79,10 @@ struct Index {
         // 如果切换到搜索标签页,显示搜索界面
         if (index === 4) {
           this.showSearch = true;
+        }
+        // 如果切换到用户中心,触发刷新
+        if (index === 3) {
+          this.userProfileRefreshTrigger++;
         }
       })
       .width('100%')

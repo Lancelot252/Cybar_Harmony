@@ -13,16 +13,34 @@ export struct RegisterPage {
   onSuccess?: () => void;
   onCancel?: () => void;
   
-  private get isFormValid(): boolean {
-    return this.username.trim() !== '' &&
-           this.password.trim() !== '' &&
-           this.confirmPassword.trim() !== '' &&
-           this.password === this.confirmPassword;
+  // 检查表单是否有效
+  private checkFormValid(): boolean {
+    const usernameValid = this.username.trim().length > 0;
+    const passwordValid = this.password.trim().length > 0;
+    const confirmValid = this.confirmPassword.trim().length > 0;
+    const passwordMatch = this.password === this.confirmPassword;
+    
+    console.info(`[Register] 验证: username=${usernameValid}, password=${passwordValid}, confirm=${confirmValid}, match=${passwordMatch}`);
+    
+    return usernameValid && passwordValid && confirmValid && passwordMatch;
   }
   
   private async handleRegister() {
-    if (!this.isFormValid) {
-      promptAction.showToast({ message: '请完整填写表单' });
+    // 验证表单
+    if (this.username.trim().length === 0) {
+      promptAction.showToast({ message: '请输入用户名' });
+      return;
+    }
+    if (this.password.trim().length === 0) {
+      promptAction.showToast({ message: '请输入密码' });
+      return;
+    }
+    if (this.confirmPassword.trim().length === 0) {
+      promptAction.showToast({ message: '请确认密码' });
+      return;
+    }
+    if (this.password !== this.confirmPassword) {
+      promptAction.showToast({ message: '两次密码不一致' });
       return;
     }
     
@@ -194,8 +212,8 @@ export struct RegisterPage {
             .backgroundColor('#34C759')
             .borderRadius(12)
             .margin({ top: 8 })
-            .enabled(!this.isLoading && this.isFormValid)
-            .opacity((!this.isLoading && this.isFormValid) ? 1.0 : 0.6)
+            .enabled(!this.isLoading)
+            .opacity(this.isLoading ? 0.6 : 1.0)
             .onClick(() => {
               this.handleRegister();
             })
