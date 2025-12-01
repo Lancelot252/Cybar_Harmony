@@ -9,6 +9,9 @@ import promptAction from '@ohos.promptAction';
 
 @Component
 export struct UserProfilePage {
+  // 从外部传入的刷新触发器
+  @Prop @Watch('onRefreshTriggerChange') refreshTrigger: number = 0;
+  
   @State isLoggedIn: boolean = false;
   @State userName: string = '未登录';
   @State userRole: string = '';
@@ -24,6 +27,14 @@ export struct UserProfilePage {
   @State favoritesError: string = '';
   @State myRecipesError: string = '';
   @State loginStatusDebug: string = '';
+  
+  // 刷新触发器变化时刷新数据
+  onRefreshTriggerChange() {
+    console.info('[UserProfilePage] refreshTrigger changed, refreshing...');
+    if (this.isLoggedIn) {
+      this.refreshAll();
+    }
+  }
   
   // 状态变化监听器
   private stateChangeListener = () => {
@@ -172,6 +183,14 @@ export struct UserProfilePage {
   aboutToDisappear() {
     // 移除监听器
     APIService.getInstance().removeListener(this.stateChangeListener);
+  }
+  
+  // 每次页面显示时刷新数据（从其他页面返回时也会触发）
+  onPageShow() {
+    console.info('[UserProfilePage] onPageShow triggered');
+    if (this.isLoggedIn) {
+      this.refreshAll();
+    }
   }
   
   build() {

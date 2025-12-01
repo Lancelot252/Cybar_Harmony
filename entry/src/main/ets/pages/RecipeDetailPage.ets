@@ -82,6 +82,11 @@ struct RecipeDetailPage {
   
   // 登录状态
   @State isLoggedIn: boolean = false;
+  
+  // AI口味分析相关状态
+  @State isAnalyzing: boolean = false;
+  @State showAIAnalysis: boolean = false;
+  @State aiAnalysisText: string = '';
 
   aboutToAppear() {
     // 从路由参数获取 recipeId
@@ -198,12 +203,13 @@ struct RecipeDetailPage {
       this.isLoading = false;
       console.info(`[RecipeDetailPage] recipe detail loaded, now loading interactions and comments`);
       
-      // 异步加载交互状态和评论
+      // 异步加载交互状态、评论和AI分析
       setTimeout(() => {
         if (this.isLoggedIn) {
           this.loadInteractionStatus();
         }
         this.loadComments();
+        this.loadAIAnalysisData();
       }, 100);
       
     } catch (error) {
@@ -243,6 +249,44 @@ struct RecipeDetailPage {
       console.error('[RecipeDetailPage] 加载交互状态失败:', error);
     } finally {
       this.isLoadingInteraction = false;
+    }
+  }
+
+  /**
+   * 加载AI分析数据
+   */
+  private async loadAIAnalysisData() {
+    if (!this.recipeId) return;
+    
+    try {
+      const response = await APIService.getInstance().fetchRecipeRatings(this.recipeId);
+      if (response.aiAnalysis) {
+        this.aiAnalysisText = response.aiAnalysis;
+        console.info('[RecipeDetailPage] AI分析数据加载成功');
+      }
+    } catch (error) {
+      console.error('[RecipeDetailPage] 加载AI分析数据失败:', error);
+    }
+  }
+
+  /**
+   * 执行AI口味分析
+   */
+  private async performAIAnalysis() {
+    if (!this.recipeId) return;
+    
+    this.isAnalyzing = true;
+    try {
+      const response = await APIService.getInstance().analyzeRecipeFlavor(this.recipeId);
+      this.aiAnalysisText = response.analysis;
+      this.showAIAnalysis = true;
+      promptAction.showToast({ message: 'AI分析完成' });
+    } catch (error) {
+      console.error('[RecipeDetailPage] AI分析失败:', error);
+      const message = error instanceof Error ? error.message : 'AI分析失败';
+      promptAction.showToast({ message: message });
+    } finally {
+      this.isAnalyzing = false;
     }
   }
 
@@ -560,6 +604,9 @@ struct RecipeDetailPage {
             // 营养信息
             this.buildNutritionSection()
             
+            // AI口味分析区域
+            this.buildAIAnalysisSection()
+            
             // 评论区域
             this.buildCommentsSection()
           }
@@ -583,6 +630,15 @@ struct RecipeDetailPage {
       backgroundColor: Color.White,
       onDisappear: () => {
         this.showComments = false;
+      }
+    })
+    .bindSheet($$this.showAIAnalysis, this.buildAIAnalysisSheet(), {
+      height: SheetSize.LARGE,
+      showClose: false,
+      dragBar: true,
+      backgroundColor: Color.White,
+      onDisappear: () => {
+        this.showAIAnalysis = false;
       }
     })
   }
@@ -1226,5 +1282,384 @@ struct RecipeDetailPage {
     .width('100%')
     .height('100%')
     .backgroundColor(Color.White)
+  }
+
+  /**
+   * 构建AI口味分析区域
+   */
+  @Builder
+  buildAIAnalysisSection() {
+    Column({ space: 16 }) {
+      // 标题行
+      Row() {
+        Text('🤖 AI口味分析')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#1A1A1A')
+        
+        Blank()
+        
+        // 显示分析状态
+        if (this.aiAnalysisText) {
+          Text('✅ 已分析')
+            .fontSize(12)
+            .fontColor('#52c41a')
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .backgroundColor('#f6ffed')
+            .borderRadius(4)
+        }
+      }
+      .width('100%')
+      
+      // 操作按钮
+      if (!this.aiAnalysisText) {
+        // 未分析：显示AI分析按钮
+        Button() {
+          Row({ space: 8 }) {
+            if (this.isAnalyzing) {
+              LoadingProgress()
+                .width(20)
+                .height(20)
+                .color(Color.White)
+            } else {
+              Text('🤖')
+                .fontSize(16)
+            }
+            Text(this.isAnalyzing ? '分析中...' : 'AI智能分析')
+              .fontSize(14)
+              .fontColor(Color.White)
+          }
+        }
+        .type(ButtonType.Normal)
+        .width('100%')
+        .height(44)
+        .borderRadius(22)
+        .linearGradient({
+          direction: GradientDirection.Right,
+          colors: [['#667eea', 0], ['#764ba2', 1]]
+        })
+        .enabled(!this.isAnalyzing)
+        .onClick(() => {
+          this.performAIAnalysis();
+        })
+      } else {
+        // 已分析：显示查看分析按钮和重新分析按钮
+        Row({ space: 12 }) {
+          Button() {
+            Row({ space: 8 }) {
+              Text('📊')
+                .fontSize(16)
+              Text('查看AI分析')
+                .fontSize(14)
+                .fontColor(Color.White)
+            }
+          }
+          .type(ButtonType.Normal)
+          .layoutWeight(1)
+          .height(44)
+          .borderRadius(22)
+          .linearGradient({
+            direction: GradientDirection.Right,
+            colors: [['#11998e', 0], ['#38ef7d', 1]]
+          })
+          .onClick(() => {
+            this.showAIAnalysis = true;
+          })
+          
+          Button() {
+            Row({ space: 8 }) {
+              if (this.isAnalyzing) {
+                LoadingProgress()
+                  .width(16)
+                  .height(16)
+                  .color('#666666')
+              } else {
+                Text('🔄')
+                  .fontSize(14)
+              }
+              Text(this.isAnalyzing ? '分析中' : '重新分析')
+                .fontSize(14)
+                .fontColor('#666666')
+            }
+          }
+          .type(ButtonType.Normal)
+          .layoutWeight(1)
+          .height(44)
+          .borderRadius(22)
+          .backgroundColor('#F5F5F5')
+          .enabled(!this.isAnalyzing)
+          .onClick(() => {
+            this.performAIAnalysis();
+          })
+        }
+        .width('100%')
+      }
+    }
+    .width('100%')
+    .padding(20)
+    .backgroundColor(Color.White)
+    .borderRadius(16)
+  }
+
+  /**
+   * 从AI分析文本中提取评分
+   */
+  private parseScoreFromText(text: string, label: string, maxScore: number): number {
+    // 匹配 "标签: X/Y" 或 "标签：X/Y" 格式
+    const patterns = [
+      new RegExp(`${label}[：:][\\s]*(\\d+(?:\\.\\d+)?)[/／](\\d+)`, 'i'),
+      new RegExp(`${label}[：:].*?(\\d+(?:\\.\\d+)?)[/／](\\d+)`, 'i')
+    ];
+    
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const score = parseFloat(match[1]);
+        return Math.min(score, maxScore);
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * 构建评分进度条
+   */
+  @Builder
+  buildScoreBar(label: string, score: number, maxScore: number, color: string, icon: string) {
+    Column({ space: 8 }) {
+      Row() {
+        Text(icon)
+          .fontSize(16)
+        Text(label)
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#333333')
+          .margin({ left: 6 })
+        
+        Blank()
+        
+        Text(`${score}`)
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(color)
+        Text(`/${maxScore}`)
+          .fontSize(12)
+          .fontColor('#999999')
+      }
+      .width('100%')
+      
+      Stack({ alignContent: Alignment.Start }) {
+        // 背景条
+        Row()
+          .width('100%')
+          .height(12)
+          .backgroundColor('#F0F0F0')
+          .borderRadius(6)
+        
+        // 进度条 - 渐变效果
+        Row()
+          .width(`${(score / maxScore) * 100}%`)
+          .height(12)
+          .linearGradient({
+            direction: GradientDirection.Right,
+            colors: [[color, 0], [this.lightenColor(color), 1]]
+          })
+          .borderRadius(6)
+          .shadow({
+            radius: 4,
+            color: color,
+            offsetX: 0,
+            offsetY: 2
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
+  }
+
+  /**
+   * 将颜色变亮
+   */
+  private lightenColor(hex: string): string {
+    // 简单处理：在颜色后加透明度或返回较亮版本
+    const colorMap: Record<string, string> = {
+      '#FF6B6B': '#FF9999',
+      '#4ECDC4': '#7EEEE6',
+      '#45B7D1': '#7DD3E8',
+      '#96CEB4': '#B8E4D0',
+      '#DDA0DD': '#EECCEE',
+      '#FFB347': '#FFCC80',
+      '#87CEEB': '#B0E0F0',
+      '#98D8C8': '#C0EAE0',
+      '#F7DC6F': '#FCE99A',
+      '#BB8FCE': '#D4B8E0'
+    };
+    return colorMap[hex] || hex;
+  }
+
+  /**
+   * 构建AI分析结果面板
+   */
+  @Builder
+  buildAIAnalysisSheet() {
+    Column() {
+      // 标题栏
+      Row() {
+        Text('关闭')
+          .fontSize(16)
+          .fontColor('#007DFF')
+          .onClick(() => {
+            this.showAIAnalysis = false;
+          })
+        
+        Blank()
+        
+        Text('AI口味分析')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+        
+        Blank()
+        
+        Text('     ')
+          .width(50)
+      }
+      .width('100%')
+      .height(56)
+      .padding({ left: 16, right: 16 })
+      
+      Divider()
+      
+      // 分析内容
+      Scroll() {
+        Column({ space: 20 }) {
+          // 标题卡片
+          Row({ space: 8 }) {
+            Text('🤖')
+              .fontSize(24)
+            Text('AI专业口味分析报告')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.White)
+          }
+          .width('100%')
+          .padding(16)
+          .linearGradient({
+            direction: GradientDirection.Right,
+            colors: [['#667eea', 0], ['#764ba2', 1]]
+          })
+          .borderRadius(12)
+          
+          if (this.aiAnalysisText) {
+            // 综合评分建议区域
+            Column({ space: 16 }) {
+              Row() {
+                Text('📊')
+                  .fontSize(18)
+                Text(' 综合评分建议')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor('#333333')
+              }
+              .width('100%')
+              
+              Column({ space: 14 }) {
+                this.buildScoreBar('外观呈现', this.parseScoreFromText(this.aiAnalysisText, '外观呈现', 10), 10, '#FF6B6B', '🎨')
+                this.buildScoreBar('香气表现', this.parseScoreFromText(this.aiAnalysisText, '香气表现', 10), 10, '#4ECDC4', '👃')
+                this.buildScoreBar('风味平衡', this.parseScoreFromText(this.aiAnalysisText, '风味平衡', 10), 10, '#45B7D1', '👅')
+                this.buildScoreBar('口感体验', this.parseScoreFromText(this.aiAnalysisText, '口感体验', 10), 10, '#96CEB4', '💫')
+                this.buildScoreBar('余韵持久', this.parseScoreFromText(this.aiAnalysisText, '余韵持久', 10), 10, '#DDA0DD', '✨')
+              }
+              .width('100%')
+            }
+            .width('100%')
+            .padding(16)
+            .backgroundColor('#FAFAFA')
+            .borderRadius(16)
+            
+            // 口味特征区域
+            Column({ space: 16 }) {
+              Row() {
+                Text('🍸')
+                  .fontSize(18)
+                Text(' 口味特征')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor('#333333')
+              }
+              .width('100%')
+              
+              Column({ space: 14 }) {
+                this.buildScoreBar('甜度', this.parseScoreFromText(this.aiAnalysisText, '甜度', 5), 5, '#FFB347', '🍯')
+                this.buildScoreBar('酸度', this.parseScoreFromText(this.aiAnalysisText, '酸度', 5), 5, '#87CEEB', '🍋')
+                this.buildScoreBar('苦度', this.parseScoreFromText(this.aiAnalysisText, '苦度', 5), 5, '#98D8C8', '🌿')
+                this.buildScoreBar('烈度', this.parseScoreFromText(this.aiAnalysisText, '烈度', 5), 5, '#F7DC6F', '🔥')
+                this.buildScoreBar('清爽度', this.parseScoreFromText(this.aiAnalysisText, '清爽度', 5), 5, '#BB8FCE', '❄️')
+              }
+              .width('100%')
+            }
+            .width('100%')
+            .padding(16)
+            .backgroundColor('#F0F8FF')
+            .borderRadius(16)
+            
+            // 详细分析文本
+            Column({ space: 12 }) {
+              Row() {
+                Text('📝')
+                  .fontSize(18)
+                Text(' 详细分析')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor('#333333')
+              }
+              .width('100%')
+              
+              Text(this.aiAnalysisText)
+                .fontSize(14)
+                .fontColor('#555555')
+                .lineHeight(24)
+                .width('100%')
+            }
+            .width('100%')
+            .padding(16)
+            .backgroundColor(Color.White)
+            .borderRadius(16)
+            .border({ width: 1, color: '#E8E8E8' })
+            
+          } else {
+            Column({ space: 16 }) {
+              Text('⚠️')
+                .fontSize(48)
+                .opacity(0.5)
+              Text('暂无AI分析结果')
+                .fontSize(16)
+                .fontColor('#999999')
+              
+              Button('开始AI分析')
+                .type(ButtonType.Normal)
+                .height(44)
+                .borderRadius(22)
+                .linearGradient({
+                  direction: GradientDirection.Right,
+                  colors: [['#667eea', 0], ['#764ba2', 1]]
+                })
+                .onClick(() => {
+                  this.showAIAnalysis = false;
+                  this.performAIAnalysis();
+                })
+            }
+            .width('100%')
+            .padding(40)
+            .justifyContent(FlexAlign.Center)
+          }
+        }
+        .width('100%')
+        .padding(16)
+      }
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#F5F5F5')
   }
 }
