@@ -5,6 +5,8 @@ import { http } from '@kit.NetworkKit';
 import { common } from '@kit.AbilityKit';
 import preferences from '@ohos.data.preferences';
 import { RecipesResponse } from '../common/models/Recipe';
+import { RecommendationsResponse } from '../models/Recipe';
+
 
 // 自定义错误类
 export class APIError extends Error {
@@ -93,8 +95,9 @@ type StateChangeListener = () => void;
 // ⚠️ 开发环境 - 本地调试（使用时取消注释这行，注释掉生产环境）
 // const BASE_URL: string = 'http://172.26.19.215:8080';
 // const BASE_URL: string = 'http://10.0.2.2:80';
+const BASE_URL: string = 'http://192.168.43.231:8080';
 // ⚠️ 生产环境 - 远程服务器（发布时取消注释这行，注释掉开发环境）
-const BASE_URL: string = 'http://47.101.11.98:8080';
+// const BASE_URL: string = 'http://47.101.11.98:8080';
 
 /**
  * API服务单例类
@@ -663,23 +666,27 @@ export default class APIService {
   }
   
   /**
-   * 获取推荐列表
+   * 获取推荐列表（支持分页）
+   * @param page 页码（从1开始）
+   * @param limit 每页数量
    */
-  public async fetchRecommendations(): Promise<Array<object>> {
+  public async fetchRecommendations(page: number = 1, limit: number = 10): Promise<RecommendationsResponse> {
     try {
-      const url = `${this.baseURL}/api/recommendations`;
+      const url = `${this.baseURL}/api/recommendations?page=${page}&limit=${limit}`;
       const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
       const response = await http.createHttp().request(url, requestOptions);
       
       if (response.responseCode === 200) {
-        const result = response.result as APIResponse<Array<object>>;
-        return result.data || [];
+        // expectDataType: OBJECT 已经自动解析为对象，无需 JSON.parse()
+        const result = response.result as RecommendationsResponse;
+        console.info(`[APIService] 推荐加载成功: 第${page}页, ${result.recommendations?.length || 0}条`);
+        return result;
       } else {
         throw new APIError('获取推荐列表失败', 'FETCH_FAILED');
       }
     } catch (error) {
       console.error('[APIService] 获取推荐列表失败:', error);
-      return [];
+      return { recommendations: [], message: '加载失败' };
     }
   }
   

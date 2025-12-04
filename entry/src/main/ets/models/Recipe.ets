@@ -46,3 +46,33 @@ export interface RecipeInteractions {
   isLiked: boolean;
   isFavorited: boolean;
 }
+
+/**
+ * 推荐配方接口
+ */
+export interface RecommendedRecipe {
+  id: string;
+  name: string;
+  estimatedAbv: number | string; // 后端返回字符串类型
+  matchPercentage: number; // 匹配度百分比 (0-100)
+  reason: string; // 合并的推荐理由
+  reasons: Array<string>; // 推荐理由数组
+  likeCount: number; // 点赞数
+}
+
+/**
+ * 推荐响应接口
+ */
+interface GeneratedTypeLiteralInterface_1 {
+  currentPage: number;
+  totalPages: number;
+  totalRecommendations: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export interface RecommendationsResponse {
+  recommendations: Array<RecommendedRecipe>;
+  message?: string; // 当无推荐时的提示信息
+  pagination?: GeneratedTypeLiteralInterface_1;
+}
