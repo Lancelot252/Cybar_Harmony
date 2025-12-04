@@ -4,8 +4,7 @@
 import { http } from '@kit.NetworkKit';
 import { common } from '@kit.AbilityKit';
 import preferences from '@ohos.data.preferences';
-import { RecipesResponse } from '../common/models/Recipe';
-import { RecommendationsResponse } from '../models/Recipe';
+import { RecipesResponse, RecommendationsResponse } from '../models/Recipe';
 
 
 // 自定义错误类

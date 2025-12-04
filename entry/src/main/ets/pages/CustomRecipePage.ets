@@ -3,7 +3,7 @@
 
 import { router } from '@kit.ArkUI';
 import APIService, { AIGeneratedRecipe, AIIngredient } from '../services/APIService';
-import { APIIngredient } from '../common/models/Recipe';
+import { APIIngredient } from '../models/Recipe';
 import promptAction from '@ohos.promptAction';
 
 // 配料项接口
