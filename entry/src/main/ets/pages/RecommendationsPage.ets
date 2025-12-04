@@ -6,6 +6,7 @@ import { router } from '@kit.ArkUI';
 import APIService from '../services/APIService';
 import { Recipe, RecipesResponse, Ingredient, RecommendedRecipe, RecommendationsResponse } from '../models/Recipe';
 import promptAction from '@ohos.promptAction';
+import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
 
 // Tab类型枚举
 enum TabType {
@@ -132,6 +133,7 @@ export struct RecommendationsPage {
   // Tab状态
   @State currentTab: TabType = TabType.RECOMMENDATION;
   @State selectedTabIndex: number = 0;
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
   
   // 推荐Tab数据
   @State recommendDataSource: RecommendedRecipeDataSource = new RecommendedRecipeDataSource();
@@ -156,6 +158,11 @@ export struct RecommendationsPage {
   
   private pageSize: number = 20; // 每页加载数量
   private scroller: Scroller = new Scroller();
+  
+  // 获取当前主题色
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
   
   aboutToAppear(): void {
     // 初始加载推荐Tab数据
@@ -349,9 +356,15 @@ export struct RecommendationsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F6F6F6')
+    .backgroundColor(this.getColors().background)
   }
   
+  private goToSearch(): void {
+    router.pushUrl({
+      url: 'pages/SearchPage'
+    });
+  }
+
   /**
    * 顶部Tab导航栏
    */
@@ -365,7 +378,7 @@ export struct RecommendationsPage {
           Text('推荐')
             .fontSize(this.selectedTabIndex === 0 ? 18 : 16)
             .fontWeight(this.selectedTabIndex === 0 ? FontWeight.Bold : FontWeight.Normal)
-            .fontColor(this.selectedTabIndex === 0 ? '#1A1A1A' : '#999999')
+            .fontColor(this.selectedTabIndex === 0 ? this.getColors().textPrimary : this.getColors().textTertiary)
             .animation({
               duration: 200,
               curve: Curve.EaseInOut
@@ -376,12 +389,12 @@ export struct RecommendationsPage {
             Divider()
               .width(24)
               .height(3)
-              .color('#007DFF')
+              .color(this.getColors().accent)
               .borderRadius(1.5)
               .margin({ top: 4 })
           }
         }
-        .width('50%')
+        .layoutWeight(1)
         .height('100%')
         .justifyContent(FlexAlign.Center)
         .onClick(() => this.onTabChange(0))
@@ -391,7 +404,7 @@ export struct RecommendationsPage {
           Text('热榜')
             .fontSize(this.selectedTabIndex === 1 ? 18 : 16)
             .fontWeight(this.selectedTabIndex === 1 ? FontWeight.Bold : FontWeight.Normal)
-            .fontColor(this.selectedTabIndex === 1 ? '#1A1A1A' : '#999999')
+            .fontColor(this.selectedTabIndex === 1 ? this.getColors().textPrimary : this.getColors().textTertiary)
             .animation({
               duration: 200,
               curve: Curve.EaseInOut
@@ -402,26 +415,34 @@ export struct RecommendationsPage {
             Divider()
               .width(24)
               .height(3)
-              .color('#007DFF')
+              .color(this.getColors().accent)
               .borderRadius(1.5)
               .margin({ top: 4 })
           }
         }
-        .width('50%')
+        .layoutWeight(1)
         .height('100%')
         .justifyContent(FlexAlign.Center)
         .onClick(() => this.onTabChange(1))
+        
+        // 搜索图标
+        SymbolGlyph($r('sys.symbol.magnifyingglass'))
+          .fontSize(22)
+          .fontColor([this.getColors().textPrimary])
+          .margin({ right: 6 })
+          .onClick(() => this.goToSearch())
       }
       .width('100%')
       .height(50)
+      .padding({ left: 16, right: 16 })
       
       // 分割线
       Divider()
-        .color('#E8E8E8')
+        .color(this.getColors().divider)
         .strokeWidth(1)
     }
     .width('100%')
-    .backgroundColor(Color.White)
+    .backgroundColor(this.getColors().cardBackground)
   }
   
   /**
@@ -513,9 +534,9 @@ export struct RecommendationsPage {
   @Builder
   buildEmptyState(tabName: string, message?: string) {
     Column({ space: 16 }) {
-      Text('✨')
+      SymbolGlyph($r('sys.symbol.doc_text'))
         .fontSize(64)
-        .opacity(0.3)
+        .fontColor(['#CCCCCC'])
       
       Text(message || `暂无${tabName}内容`)
         .fontSize(16)
@@ -650,8 +671,9 @@ struct RecommendedRecipeCard {
           
           // 点赞数（右下角）
           Row({ space: 2 }) {
-            Text('🤍')
+            SymbolGlyph($r('sys.symbol.heart'))
               .fontSize(12)
+              .fontColor(['#666'])
             Text(`${this.recipe.likeCount || 0}`)
               .fontSize(12)
               .fontColor('#666')
@@ -796,8 +818,9 @@ struct RecipeWaterfallCard {
           
           // 点赞数
           Row({ space: 2 }) {
-            Text(this.recipe.isLiked ? '❤️' : '🤍')
+            SymbolGlyph(this.recipe.isLiked ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
               .fontSize(12)
+              .fontColor([this.recipe.isLiked ? '#FF4D4F' : '#666'])
             Text(`${this.recipe.likeCount}`)
               .fontSize(12)
               .fontColor('#666')

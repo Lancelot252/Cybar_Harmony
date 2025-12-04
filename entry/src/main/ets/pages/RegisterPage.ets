@@ -3,15 +3,21 @@
 
 import APIService from '../services/APIService';
 import promptAction from '@ohos.promptAction';
+import { ThemeColors, LightTheme, DarkTheme } from '../common/ThemeManager'
 
 @Component
 export struct RegisterPage {
+  @StorageProp('isDarkMode') isDarkMode: boolean = false
   @State username: string = '';
   @State password: string = '';
   @State confirmPassword: string = '';
   @State isLoading: boolean = false;
   onSuccess?: () => void;
   onCancel?: () => void;
+
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme
+  }
   
   // 检查表单是否有效
   private checkFormValid(): boolean {
@@ -78,9 +84,9 @@ export struct RegisterPage {
         Button({ type: ButtonType.Normal }) {
           Text('取消')
             .fontSize(16)
-            .fontColor('#007DFF')
+            .fontColor(this.getColors().primary)
         }
-        .backgroundColor('#00000000')
+        .backgroundColor(Color.Transparent)
         .onClick(() => {
           if (this.onCancel) {
             this.onCancel();
@@ -92,6 +98,7 @@ export struct RegisterPage {
         Text('注册')
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
+          .fontColor(this.getColors().textPrimary)
         
         Blank()
         
@@ -110,15 +117,16 @@ export struct RegisterPage {
             Image($r('sys.symbol.drop'))
               .width(60)
               .height(60)
-              .fillColor('#34C759')
+              .fillColor(this.getColors().success)
             
             Text('加入我们')
               .fontSize(28)
               .fontWeight(FontWeight.Bold)
+              .fontColor(this.getColors().textPrimary)
             
             Text('创建您的账户')
               .fontSize(14)
-              .fontColor('#999999')
+              .fontColor(this.getColors().textSecondary)
           }
           .margin({ top: 40, bottom: 60 })
           
@@ -128,13 +136,15 @@ export struct RegisterPage {
             Column({ space: 8 }) {
               Text('用户名')
                 .fontSize(12)
-                .fontColor('#999999')
+                .fontColor(this.getColors().textSecondary)
                 .alignSelf(ItemAlign.Start)
               
               TextInput({ placeholder: '请输入用户名', text: this.username })
                 .width('100%')
                 .height(48)
-                .backgroundColor('#F5F5F5')
+                .backgroundColor(this.getColors().inputBackground)
+                .fontColor(this.getColors().textPrimary)
+                .placeholderColor(this.getColors().textTertiary)
                 .borderRadius(8)
                 .padding({ left: 12, right: 12 })
                 .onChange((value: string) => {
@@ -147,14 +157,16 @@ export struct RegisterPage {
             Column({ space: 8 }) {
               Text('密码')
                 .fontSize(12)
-                .fontColor('#999999')
+                .fontColor(this.getColors().textSecondary)
                 .alignSelf(ItemAlign.Start)
               
               TextInput({ placeholder: '请输入密码', text: this.password })
                 .width('100%')
                 .height(48)
                 .type(InputType.Password)
-                .backgroundColor('#F5F5F5')
+                .backgroundColor(this.getColors().inputBackground)
+                .fontColor(this.getColors().textPrimary)
+                .placeholderColor(this.getColors().textTertiary)
                 .borderRadius(8)
                 .padding({ left: 12, right: 12 })
                 .onChange((value: string) => {
@@ -167,14 +179,16 @@ export struct RegisterPage {
             Column({ space: 8 }) {
               Text('确认密码')
                 .fontSize(12)
-                .fontColor('#999999')
+                .fontColor(this.getColors().textSecondary)
                 .alignSelf(ItemAlign.Start)
               
               TextInput({ placeholder: '请再次输入密码', text: this.confirmPassword })
                 .width('100%')
                 .height(48)
                 .type(InputType.Password)
-                .backgroundColor('#F5F5F5')
+                .backgroundColor(this.getColors().inputBackground)
+                .fontColor(this.getColors().textPrimary)
+                .placeholderColor(this.getColors().textTertiary)
                 .borderRadius(8)
                 .padding({ left: 12, right: 12 })
                 .onChange((value: string) => {
@@ -187,7 +201,7 @@ export struct RegisterPage {
             if (this.password !== '' && this.confirmPassword !== '' && this.password !== this.confirmPassword) {
               Text('两次输入的密码不一致')
                 .fontSize(12)
-                .fontColor('#FF3B30')
+                .fontColor(this.getColors().error)
                 .alignSelf(ItemAlign.Start)
             }
             
@@ -198,18 +212,18 @@ export struct RegisterPage {
                   LoadingProgress()
                     .width(20)
                     .height(20)
-                    .color('#FFFFFF')
+                    .color(Color.White)
                     .margin({ right: 8 })
                 }
                 Text(this.isLoading ? '注册中...' : '注册')
                   .fontSize(16)
-                  .fontColor('#FFFFFF')
+                  .fontColor(Color.White)
                   .fontWeight(FontWeight.Medium)
               }
             }
             .width('100%')
             .height(48)
-            .backgroundColor('#34C759')
+            .backgroundColor(this.getColors().success)
             .borderRadius(12)
             .margin({ top: 8 })
             .enabled(!this.isLoading)
@@ -227,6 +241,6 @@ export struct RegisterPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(this.getColors().background)
   }
 }

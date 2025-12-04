@@ -5,7 +5,8 @@ import { router } from '@kit.ArkUI';
 import APIService from '../services/APIService';
 import promptAction from '@ohos.promptAction';
 import preferences from '@ohos.data.preferences';
-import { common } from '@kit.AbilityKit';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
+import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
 
 // 外观模式枚举
 export enum AppearanceMode {
@@ -171,9 +172,15 @@ export struct SettingsPage {
   @State showLogoutDialog: boolean = false;
   @State showLanguageDialog: boolean = false;
   @State pendingLanguage: AppLanguage = AppLanguage.SYSTEM;
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
   
   private settingsManager = SettingsManager.getInstance();
   private readonly cacheTTLOptions: number[] = [1, 3, 7, 14, 30];
+  
+  // 获取当前主题色
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
   
   aboutToAppear() {
     // 加载设置
@@ -196,12 +203,12 @@ export struct SettingsPage {
       Row() {
         Button() {
           Row({ space: 4 }) {
-            Text('←')
+            SymbolGlyph($r('sys.symbol.chevron_left'))
               .fontSize(24)
-              .fontColor('#007DFF')
+              .fontColor([this.getColors().accent])
             Text('返回')
               .fontSize(16)
-              .fontColor('#007DFF')
+              .fontColor(this.getColors().accent)
           }
         }
         .type(ButtonType.Normal)
@@ -215,6 +222,7 @@ export struct SettingsPage {
         Text('设置')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.getColors().textPrimary)
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
         
@@ -225,7 +233,7 @@ export struct SettingsPage {
       .width('100%')
       .height(56)
       .padding({ left: 8, right: 16 })
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
       
       // 设置内容
       Scroll() {
@@ -250,20 +258,21 @@ export struct SettingsPage {
       }
       .layoutWeight(1)
       .width('100%')
-      .backgroundColor('#F5F5F5')
+      .backgroundColor(this.getColors().background)
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.getColors().background)
     .bindSheet(this.showLogoutDialog, this.buildLogoutDialog(), {
       height: 200,
-      backgroundColor: Color.White,
+      backgroundColor: this.getColors().cardBackground,
       onDisappear: () => {
         this.showLogoutDialog = false;
       }
     })
     .bindSheet(this.showLanguageDialog, this.buildLanguageDialog(), {
       height: 300,
-      backgroundColor: Color.White,
+      backgroundColor: this.getColors().cardBackground,
       onDisappear: () => {
         this.showLanguageDialog = false;
       }
@@ -363,10 +372,9 @@ export struct SettingsPage {
         .layoutWeight(1)
       
       if (this.language === lang) {
-        Text('✓')
+        SymbolGlyph($r('sys.symbol.checkmark'))
           .fontSize(20)
-          .fontColor('#007DFF')
-          .fontWeight(FontWeight.Bold)
+          .fontColor(['#007DFF'])
       }
     }
     .width('100%')
@@ -385,6 +393,20 @@ export struct SettingsPage {
   }
   
   /**
+   * 应用主题变更
+   */
+  private applyThemeChange(mode: AppearanceMode) {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const config = context.config;
+      const systemColorMode = config.colorMode;
+      ThemeManager.updateTheme(mode, systemColorMode);
+    } catch (error) {
+      console.error('[SettingsPage] 应用主题失败:', error);
+    }
+  }
+
+  /**
    * 外观设置区域
    */
   @Builder
@@ -393,7 +415,7 @@ export struct SettingsPage {
       // 标题
       Text('外观')
         .fontSize(14)
-        .fontColor('#666666')
+        .fontColor(this.getColors().textSecondary)
         .width('100%')
         .padding({ left: 16, bottom: 8 })
       
@@ -403,6 +425,7 @@ export struct SettingsPage {
         Row() {
           Text('跟随系统')
             .fontSize(16)
+            .fontColor(this.getColors().textPrimary)
             .layoutWeight(1)
           
           Toggle({ type: ToggleType.Switch, isOn: this.appearanceMode === AppearanceMode.SYSTEM })
@@ -410,9 +433,11 @@ export struct SettingsPage {
               if (isOn) {
                 this.appearanceMode = AppearanceMode.SYSTEM;
                 this.settingsManager.setAppearanceMode(AppearanceMode.SYSTEM);
+                this.applyThemeChange(AppearanceMode.SYSTEM);
               } else {
                 this.appearanceMode = AppearanceMode.LIGHT;
                 this.settingsManager.setAppearanceMode(AppearanceMode.LIGHT);
+                this.applyThemeChange(AppearanceMode.LIGHT);
               }
             })
         }
@@ -423,12 +448,13 @@ export struct SettingsPage {
         // 深色模式（仅在非跟随系统时显示）
         if (this.appearanceMode !== AppearanceMode.SYSTEM) {
           Divider()
-            .color('#F0F0F0')
+            .color(this.getColors().divider)
             .padding({ left: 16, right: 16 })
           
           Row() {
             Text('深色模式')
               .fontSize(16)
+              .fontColor(this.getColors().textPrimary)
               .layoutWeight(1)
             
             Toggle({ type: ToggleType.Switch, isOn: this.appearanceMode === AppearanceMode.DARK })
@@ -436,6 +462,7 @@ export struct SettingsPage {
                 const newMode = isOn ? AppearanceMode.DARK : AppearanceMode.LIGHT;
                 this.appearanceMode = newMode;
                 this.settingsManager.setAppearanceMode(newMode);
+                this.applyThemeChange(newMode);
               })
           }
           .width('100%')
@@ -444,7 +471,7 @@ export struct SettingsPage {
         }
       }
       .width('100%')
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
       .borderRadius(12)
     }
   }
@@ -475,10 +502,9 @@ export struct SettingsPage {
             .fontColor('#999999')
             .margin({ right: 8 })
           
-          Text('›')
+          SymbolGlyph($r('sys.symbol.chevron_right'))
             .fontSize(20)
-            .fontColor('#999999')
-            .fontWeight(FontWeight.Bold)
+            .fontColor(['#999999'])
         }
         .width('100%')
         .height(56)
@@ -532,10 +558,9 @@ export struct SettingsPage {
             .fontColor('#999999')
             .margin({ right: 8 })
           
-          Text('›')
+          SymbolGlyph($r('sys.symbol.chevron_right'))
             .fontSize(20)
-            .fontColor('#999999')
-            .fontWeight(FontWeight.Bold)
+            .fontColor(['#999999'])
         }
         .width('100%')
         .height(56)
@@ -551,8 +576,9 @@ export struct SettingsPage {
         
         // 清除缓存
         Row() {
-          Text('🗑️')
+          SymbolGlyph($r('sys.symbol.trash'))
             .fontSize(20)
+            .fontColor(['#FF3B30'])
             .margin({ right: 12 })
           
           Text('清除缓存')
@@ -596,8 +622,9 @@ export struct SettingsPage {
         // 管理员面板（仅管理员可见）
         if (this.isAdmin) {
           Row() {
-            Text('⚙️')
+            SymbolGlyph($r('sys.symbol.gearshape_fill'))
               .fontSize(20)
+              .fontColor(['#666666'])
               .margin({ right: 12 })
             
             Text('管理员面板')
@@ -605,10 +632,9 @@ export struct SettingsPage {
             
             Blank()
             
-            Text('›')
+            SymbolGlyph($r('sys.symbol.chevron_right'))
               .fontSize(20)
-              .fontColor('#999999')
-              .fontWeight(FontWeight.Bold)
+              .fontColor(['#999999'])
           }
           .width('100%')
           .height(56)
@@ -624,8 +650,9 @@ export struct SettingsPage {
         
         // 退出登录
         Row() {
-          Text('🚪')
+          SymbolGlyph($r('sys.symbol.arrow_left'))
             .fontSize(20)
+            .fontColor(['#FF3B30'])
             .margin({ right: 12 })
           
           Text('退出登录')

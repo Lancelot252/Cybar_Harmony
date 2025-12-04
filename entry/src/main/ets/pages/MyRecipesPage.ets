@@ -5,10 +5,18 @@ import { router } from '@kit.ArkUI';
 import APIService from '../services/APIService';
 import { Recipe } from '../models/Recipe';
 import promptAction from '@ohos.promptAction';
+import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
 
 @Entry
 @Component
 export struct MyRecipesPage {
+  // 深色模式支持
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
+  
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
+  
   @State recipes: Array<Recipe> = [];
   @State isLoading: boolean = false;
   @State hasError: boolean = false;
@@ -148,9 +156,9 @@ export struct MyRecipesPage {
       Row() {
         Button() {
           Row({ space: 4 }) {
-            Text('←')
+            SymbolGlyph($r('sys.symbol.chevron_left'))
               .fontSize(24)
-              .fontColor('#007DFF')
+              .fontColor(['#007DFF'])
             Text('返回')
               .fontSize(16)
               .fontColor('#007DFF')
@@ -167,13 +175,15 @@ export struct MyRecipesPage {
         Text('我的配方')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.getColors().textPrimary)
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
         
         // 刷新按钮
         Button() {
-          Text('🔄')
+          SymbolGlyph($r('sys.symbol.arrow_clockwise'))
             .fontSize(20)
+            .fontColor(['#007DFF'])
         }
         .type(ButtonType.Normal)
         .backgroundColor(Color.Transparent)
@@ -186,7 +196,7 @@ export struct MyRecipesPage {
       .width('100%')
       .height(56)
       .padding({ left: 8, right: 8 })
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
       
       // 内容区域
       if (this.hasError) {
@@ -201,7 +211,7 @@ export struct MyRecipesPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor(this.getColors().background)
   }
   
   /**
@@ -217,7 +227,7 @@ export struct MyRecipesPage {
       
       Text('加载中...')
         .fontSize(14)
-        .fontColor('#999999')
+        .fontColor(this.getColors().textTertiary)
     }
     .width('100%')
     .layoutWeight(1)
@@ -230,9 +240,9 @@ export struct MyRecipesPage {
   @Builder
   buildErrorState() {
     Column({ space: 16 }) {
-      Text('⚠️')
+      SymbolGlyph($r('sys.symbol.exclamationmark_triangle'))
         .fontSize(64)
-        .opacity(0.3)
+        .fontColor(['#FF3B30'])
       
       Text(this.errorMessage || '加载失败')
         .fontSize(16)
@@ -261,18 +271,18 @@ export struct MyRecipesPage {
   @Builder
   buildEmptyState() {
     Column({ space: 16 }) {
-      Text('📝')
+      SymbolGlyph($r('sys.symbol.doc_text'))
         .fontSize(64)
-        .opacity(0.3)
+        .fontColor([this.getColors().textTertiary])
       
       Text('还没有创建配方')
         .fontSize(16)
-        .fontColor('#999999')
+        .fontColor(this.getColors().textSecondary)
         .textAlign(TextAlign.Center)
       
       Text('快去创建你的第一个鸡尾酒配方吧')
         .fontSize(14)
-        .fontColor('#CCCCCC')
+        .fontColor(this.getColors().textTertiary)
         .textAlign(TextAlign.Center)
         .margin({ top: 8 })
       
@@ -303,11 +313,11 @@ export struct MyRecipesPage {
         Row({ space: 16 }) {
           Text(`共 ${this.recipes.length} 个配方`)
             .fontSize(14)
-            .fontColor('#666666')
+            .fontColor(this.getColors().textSecondary)
           
           Text(`|`)
             .fontSize(14)
-            .fontColor('#DDDDDD')
+            .fontColor(this.getColors().divider)
           
           Text(`总点赞 ${this.totalLikes}`)
             .fontSize(14)
@@ -346,15 +356,20 @@ export struct MyRecipesPage {
         Text(recipe.name)
           .fontSize(16)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#1A1A1A')
+          .fontColor(this.getColors().textPrimary)
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         
-        Text(`👤 ${recipe.createdBy}`)
-          .fontSize(12)
-          .fontColor('#666666')
-          .width('100%')
+        Row({ space: 4 }) {
+          SymbolGlyph($r('sys.symbol.person'))
+            .fontSize(12)
+            .fontColor([this.getColors().textSecondary])
+          Text(recipe.createdBy)
+            .fontSize(12)
+            .fontColor(this.getColors().textSecondary)
+        }
+        .width('100%')
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -369,37 +384,39 @@ export struct MyRecipesPage {
       .width('100%')
       
       Divider()
-        .color('#F0F0F0')
+        .color(this.getColors().divider)
       
       // 互动信息
       Row() {
         Row({ space: 4 }) {
-          Text('❤️')
+          SymbolGlyph($r('sys.symbol.heart_fill'))
             .fontSize(14)
+            .fontColor(['#FF3B30'])
           Text(recipe.likeCount.toString())
             .fontSize(11)
-            .fontColor('#999999')
+            .fontColor(this.getColors().textTertiary)
         }
         
         Blank()
         
         Row({ space: 4 }) {
-          Text('⭐')
+          SymbolGlyph($r('sys.symbol.star_fill'))
             .fontSize(14)
+            .fontColor(['#FFB800'])
           Text(recipe.favoriteCount.toString())
             .fontSize(11)
-            .fontColor('#999999')
+            .fontColor(this.getColors().textTertiary)
         }
       }
       .width('100%')
     }
     .width('100%')
     .padding(12)
-    .backgroundColor(Color.White)
+    .backgroundColor(this.getColors().cardBackground)
     .borderRadius(12)
     .shadow({
       radius: 8,
-      color: '#00000010',
+      color: this.isDarkMode ? '#00000030' : '#00000010',
       offsetX: 0,
       offsetY: 2
     })

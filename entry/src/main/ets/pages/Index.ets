@@ -5,26 +5,58 @@ import { RecipesPage } from './RecipesPage';
 import { RecommendationsPage } from './RecommendationsPage';
 import { CustomRecipePage } from './CustomRecipePage';
 import { UserProfilePage } from './UserProfilePage';
-import { SearchPage } from './SearchPage';
+import { ThemeManager, LightTheme, DarkTheme } from '../common/ThemeManager';
+import { SettingsManager, AppearanceMode } from './SettingsPage';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
+
+// 初始化主题存储
+ThemeManager.initializeStorage();
 
 @Entry
 @Component
 struct Index {
   @State currentTabIndex: number = 0;
-  @State showSearch: boolean = false;
-  @State searchText: string = '';
-  @State userProfileRefreshTrigger: number = 0; // 用于触发用户中心刷新
+  @State userProfileRefreshTrigger: number = 0;
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
+  
+  private settingsManager = SettingsManager.getInstance();
+  
+  aboutToAppear() {
+    // 初始化设置管理器并加载主题
+    this.initializeTheme();
+  }
+  
+  private async initializeTheme() {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      await this.settingsManager.initialize(context);
+      
+      // 获取系统颜色模式
+      const config = context.config;
+      const systemColorMode = config.colorMode;
+      
+      // 应用主题
+      ThemeManager.updateTheme(this.settingsManager.appearanceMode, systemColorMode);
+    } catch (error) {
+      console.error('[Index] 初始化主题失败:', error);
+    }
+  }
+  
+  // 获取当前主题色
+  private getColors() {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
   
   @Builder
-  TabBuilder(index: number, title: string, icon: Resource, selectedIcon: Resource) {
+  TabBuilder(index: number, title: string, icon: Resource) {
     Column() {
-      Image(this.currentTabIndex === index ? selectedIcon : icon)
-        .size({ width: 24, height: 24 })
-        .fillColor(this.currentTabIndex === index ? '#007DFF' : '#999999')
+      SymbolGlyph(icon)
+        .fontSize(24)
+        .fontColor([this.currentTabIndex === index ? this.getColors().tabBarActive : this.getColors().tabBarInactive])
       
       Text(title)
         .fontSize(10)
-        .fontColor(this.currentTabIndex === index ? '#007DFF' : '#999999')
+        .fontColor(this.currentTabIndex === index ? this.getColors().tabBarActive : this.getColors().tabBarInactive)
         .margin({ top: 4 })
     }
     .width('100%')
@@ -43,44 +75,28 @@ struct Index {
         TabContent() {
           RecommendationsPage()
         }
-        .tabBar(this.TabBuilder(0, '推荐', $r('sys.symbol.star'), $r('sys.symbol.star')))
+        .tabBar(this.TabBuilder(0, '推荐', $r('sys.symbol.star')))
         
         // 配方列表
         TabContent() {
           RecipesPage()
         }
-        .tabBar(this.TabBuilder(1, '配方', $r('sys.symbol.list_bullet'), $r('sys.symbol.list_bullet')))
+        .tabBar(this.TabBuilder(1, '配方', $r('sys.symbol.list_bullet')))
         
         // 新配方
         TabContent() {
           CustomRecipePage()
         }
-        .tabBar(this.TabBuilder(2, '新配方', $r('sys.symbol.plus_square'), $r('sys.symbol.plus_square')))
+        .tabBar(this.TabBuilder(2, '新配方', $r('sys.symbol.plus_square')))
         
         // 用户中心
         TabContent() {
           UserProfilePage({ refreshTrigger: this.userProfileRefreshTrigger })
         }
-        .tabBar(this.TabBuilder(3, '我的', $r('sys.symbol.person'), $r('sys.symbol.person')))
-        
-        // 搜索页
-        TabContent() {
-          SearchPage({ 
-            onClose: () => {
-              this.showSearch = false;
-              this.currentTabIndex = 1; // 返回配方列表
-            }
-          })
-        }
-        .tabBar(this.TabBuilder(4, '搜索', $r('sys.symbol.magnifyingglass'), $r('sys.symbol.magnifyingglass')))
+        .tabBar(this.TabBuilder(3, '我的', $r('sys.symbol.person_square_fill')))
       }
       .onChange((index: number) => {
         this.currentTabIndex = index;
-        // 如果切换到搜索标签页,显示搜索界面
-        if (index === 4) {
-          this.showSearch = true;
-        }
-        // 如果切换到用户中心,触发刷新
         if (index === 3) {
           this.userProfileRefreshTrigger++;
         }
@@ -89,32 +105,10 @@ struct Index {
       .height('100%')
       .barMode(BarMode.Fixed)
       .barHeight(56)
-      
-      // // 悬浮搜索按钮(当不在搜索页时显示)
-      // if (!this.showSearch && this.currentTabIndex !== 4) {
-      //   Button({ type: ButtonType.Circle }) {
-      //     Image($r('sys.symbol.magnifyingglass'))
-      //       .width(24)
-      //       .height(24)
-      //       .fillColor('#FFFFFF')
-      //   }
-      //   .width(56)
-      //   .height(56)
-      //   .backgroundColor('#007DFF')
-      //   .position({ x: '85%', y: '80%' })
-      //   .shadow({
-      //     radius: 10,
-      //     color: 'rgba(0, 125, 255, 0.3)',
-      //     offsetX: 0,
-      //     offsetY: 4
-      //   })
-      //   .onClick(() => {
-      //     this.showSearch = true;
-      //     this.currentTabIndex = 4;
-      //   })
-      // }
+      .barBackgroundColor(this.getColors().tabBarBackground)
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.getColors().background)
   }
 }

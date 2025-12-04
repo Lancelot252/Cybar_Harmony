@@ -1,15 +1,29 @@
 // SearchPage.ets - 搜索页面
 // 参考 Swift SearchView.swift 和 server.js /api/recipes 实现
-// 支持按配方名称搜索,实时搜索,分页加载
+// 支持按配方名称搜索,搜索历史,分页加载
 
 import { Recipe } from '../models/Recipe';
 import APIService from '../services/APIService';
 import { router } from '@kit.ArkUI';
 import promptAction from '@ohos.promptAction';
+import preferences from '@ohos.data.preferences';
+import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
+
+// 搜索历史最大条数
+const MAX_HISTORY_COUNT = 10;
+const SEARCH_HISTORY_KEY = 'search_history';
+const PREFERENCES_NAME = 'searchPreferences';
 
 @Entry
 @Component
 export struct SearchPage {
+  // 深色模式支持
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
+  
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
+  
   // 允许从外部绑定(用于 Tab 导航),也可以独立使用
   @State searchText: string = '';
   @State recipes: Array<Recipe> = [];
@@ -18,89 +32,119 @@ export struct SearchPage {
   @State totalPages: number = 1;
   @State hasError: boolean = false;
   @State errorMessage: string = '';
+  @State searchHistory: Array<string> = [];
+  @State hasSearched: boolean = false; // 是否已执行搜索
   
   // 可选的关闭回调(用于嵌入模式)
   onClose?: () => void;
   
-  // 防抖定时器
-  private debounceTimer: number = -1;
   private readonly pageSize: number = 20;
-  private readonly debounceDelay: number = 300; // 300ms 防抖延迟
+  private preferencesInstance: preferences.Preferences | null = null;
   
   aboutToAppear() {
     console.info('[SearchPage] ========================================');
     console.info('[SearchPage] Page appeared (aboutToAppear)');
-    console.info('[SearchPage] Initial state - searchText: "%s"', this.searchText);
-    console.info('[SearchPage] Initial state - recipes.length: %d', this.recipes.length);
     console.info('[SearchPage] ========================================');
     
-    // 测试API连接
-    this.testAPIConnection();
+    // 加载搜索历史
+    this.loadSearchHistory();
   }
   
   /**
-   * 测试API连接
+   * 加载搜索历史
    */
-  private async testAPIConnection() {
+  private async loadSearchHistory() {
     try {
-      console.info('[SearchPage] Testing API connection...');
-      const apiService = APIService.getInstance();
-      
-      // 尝试获取第一页数据来测试连接
-      await apiService.fetchRecipes(1, 1, '', 'default');
-      console.info('[SearchPage] API connection test PASSED ✓');
+      const context = getContext(this);
+      this.preferencesInstance = await preferences.getPreferences(context, PREFERENCES_NAME);
+      const historyStr = await this.preferencesInstance.get(SEARCH_HISTORY_KEY, '[]') as string;
+      this.searchHistory = JSON.parse(historyStr) as Array<string>;
+      console.info('[SearchPage] Loaded search history:', this.searchHistory.length, 'items');
     } catch (error) {
-      console.error('[SearchPage] API connection test FAILED ✗');
-      console.error('[SearchPage] Error:', error);
-      
-      // 不显示错误给用户，因为这只是预检测
-      // 用户搜索时会看到实际错误
+      console.error('[SearchPage] Failed to load search history:', error);
+      this.searchHistory = [];
     }
-  }
-  
-  aboutToDisappear() {
-    console.info('[SearchPage] ========================================');
-    console.info('[SearchPage] Page disappearing (aboutToDisappear)');
-    
-    // 清理定时器
-    if (this.debounceTimer !== -1) {
-      console.info('[SearchPage] Cleaning up debounce timer');
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = -1;
-    }
-    
-    console.info('[SearchPage] Page cleanup complete');
-    console.info('[SearchPage] ========================================');
   }
   
   /**
-   * 执行搜索 (带防抖)
+   * 保存搜索历史
    */
-  private performSearch() {
-    console.info(`[SearchPage] performSearch called - searchText: "${this.searchText}"`);
+  private async saveSearchHistory() {
+    try {
+      if (this.preferencesInstance) {
+        await this.preferencesInstance.put(SEARCH_HISTORY_KEY, JSON.stringify(this.searchHistory));
+        await this.preferencesInstance.flush();
+        console.info('[SearchPage] Saved search history');
+      }
+    } catch (error) {
+      console.error('[SearchPage] Failed to save search history:', error);
+    }
+  }
+  
+  /**
+   * 添加搜索历史
+   */
+  private addToHistory(keyword: string) {
+    if (!keyword.trim()) return;
     
-    // 清除之前的定时器
-    if (this.debounceTimer !== -1) {
-      console.info(`[SearchPage] Clearing previous debounce timer`);
-      clearTimeout(this.debounceTimer);
+    // 移除已存在的相同记录
+    const index = this.searchHistory.indexOf(keyword);
+    if (index !== -1) {
+      this.searchHistory.splice(index, 1);
     }
     
-    // 如果搜索框为空,清空结果
-    if (this.searchText.trim() === '') {
-      console.info(`[SearchPage] Search text is empty, clearing results`);
-      this.recipes = [];
-      this.currentPage = 1;
-      this.totalPages = 1;
-      this.hasError = false;
+    // 添加到开头
+    this.searchHistory.unshift(keyword);
+    
+    // 限制最大条数
+    if (this.searchHistory.length > MAX_HISTORY_COUNT) {
+      this.searchHistory = this.searchHistory.slice(0, MAX_HISTORY_COUNT);
+    }
+    
+    this.saveSearchHistory();
+  }
+  
+  /**
+   * 删除单条搜索历史
+   */
+  private removeFromHistory(keyword: string) {
+    const index = this.searchHistory.indexOf(keyword);
+    if (index !== -1) {
+      this.searchHistory.splice(index, 1);
+      this.saveSearchHistory();
+    }
+  }
+  
+  /**
+   * 清空搜索历史
+   */
+  private clearHistory() {
+    this.searchHistory = [];
+    this.saveSearchHistory();
+  }
+  
+  /**
+   * 执行搜索
+   */
+  private doSearch() {
+    const query = this.searchText.trim();
+    if (query === '') {
+      promptAction.showToast({ message: '请输入搜索关键词' });
       return;
     }
     
-    // 设置新的防抖定时器
-    console.info(`[SearchPage] Setting debounce timer for ${this.debounceDelay}ms`);
-    this.debounceTimer = setTimeout(() => {
-      console.info(`[SearchPage] Debounce timer fired, executing search`);
-      this.fetchRecipes(true);
-    }, this.debounceDelay);
+    console.info(`[SearchPage] doSearch - query: "${query}"`);
+    this.addToHistory(query);
+    this.hasSearched = true;
+    this.fetchRecipes(true);
+  }
+  
+  /**
+   * 使用历史记录搜索
+   */
+  private searchWithHistory(keyword: string) {
+    this.searchText = keyword;
+    this.doSearch();
   }
   
   /**
@@ -358,9 +402,9 @@ export struct SearchPage {
       this.buildSearchBar();
       
       // 内容区域
-      if (this.searchText.trim() === '') {
-        // 空状态 - 搜索提示
-        this.buildEmptyState();
+      if (!this.hasSearched) {
+        // 未搜索状态 - 显示搜索历史
+        this.buildHistoryState();
       } else if (this.isLoading && this.recipes.length === 0) {
         // 首次加载状态
         this.buildLoadingState();
@@ -377,7 +421,7 @@ export struct SearchPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor(this.getColors().background)
   }
   
   /**
@@ -388,19 +432,14 @@ export struct SearchPage {
     Row() {
       // 返回按钮
       Button() {
-        Row({ space: 4 }) {
-          Text('←')
-            .fontSize(24)
-            .fontColor('#333333')
-          Text('返回')
-            .fontSize(16)
-            .fontColor('#333333')
-        }
+        SymbolGlyph($r('sys.symbol.chevron_left'))
+          .fontSize(24)
+          .fontColor([this.getColors().textPrimary])
       }
       .type(ButtonType.Normal)
       .backgroundColor(Color.Transparent)
       .height(44)
-      .padding({ left: 4, right: 12 })
+      .width(44)
       .onClick(() => {
         // 如果有关闭回调则调用,否则返回上一页
         if (this.onClose) {
@@ -412,8 +451,9 @@ export struct SearchPage {
       
       // 搜索输入框
       Row() {
-        Text('🔍')
-          .fontSize(18)
+        SymbolGlyph($r('sys.symbol.magnifyingglass'))
+          .fontSize(16)
+          .fontColor([this.getColors().textTertiary])
           .margin({ right: 8 })
         
         TextInput({ 
@@ -423,28 +463,19 @@ export struct SearchPage {
           .layoutWeight(1)
           .height(36)
           .backgroundColor(Color.Transparent)
+          .fontColor(this.getColors().textPrimary)
           .border({ width: 0 })
-          .onChange((value: string) => {
-            console.info(`[SearchPage] TextInput onChange - value: "${value}"`);
-            this.searchText = value;
-            this.performSearch();
-          })
           .onSubmit(() => {
             console.info(`[SearchPage] TextInput onSubmit - searchText: "${this.searchText}"`);
-            // 立即执行搜索,不等待防抖
-            if (this.debounceTimer !== -1) {
-              clearTimeout(this.debounceTimer);
-              this.debounceTimer = -1;
-            }
-            this.fetchRecipes(true);
+            this.doSearch();
           })
         
         // 清除按钮
         if (this.searchText.length > 0) {
           Button() {
-            Text('✕')
-              .fontSize(18)
-              .fontColor('#999999')
+            SymbolGlyph($r('sys.symbol.xmark_circle_fill'))
+              .fontSize(16)
+              .fontColor([this.getColors().textTertiary])
           }
           .type(ButtonType.Normal)
           .backgroundColor(Color.Transparent)
@@ -453,38 +484,146 @@ export struct SearchPage {
           .onClick(() => {
             this.searchText = '';
             this.recipes = [];
+            this.hasSearched = false;
             this.hasError = false;
           })
         }
       }
       .layoutWeight(1)
-      .height(44)
-      .backgroundColor('#F5F5F5')
-      .borderRadius(22)
+      .height(40)
+      .backgroundColor(this.getColors().inputBackground)
+      .borderRadius(20)
       .padding({ left: 12, right: 4 })
-      .margin({ right: 12 })
+      
+      // 搜索按钮
+      Button('搜索')
+        .fontSize(14)
+        .fontColor(Color.White)
+        .backgroundColor('#007DFF')
+        .height(36)
+        .borderRadius(18)
+        .padding({ left: 16, right: 16 })
+        .margin({ left: 8 })
+        .onClick(() => {
+          this.doSearch();
+        })
     }
     .width('100%')
-    .height(64)
-    .padding({ left: 8, right: 8 })
-    .backgroundColor(Color.White)
+    .height(60)
+    .padding({ left: 8, right: 12 })
+    .backgroundColor(this.getColors().cardBackground)
     .shadow({
       radius: 4,
-      color: '#00000008',
+      color: this.isDarkMode ? '#00000030' : '#00000008',
       offsetX: 0,
       offsetY: 2
     })
   }
   
   /**
-   * 构建空状态
+   * 构建搜索历史状态
+   */
+  @Builder
+  buildHistoryState() {
+    Column() {
+      if (this.searchHistory.length > 0) {
+        // 历史记录头部
+        Row() {
+          Text('搜索历史')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.getColors().textPrimary)
+          
+          Blank()
+          
+          Button() {
+            Text('清空')
+              .fontSize(14)
+              .fontColor(this.getColors().textTertiary)
+          }
+          .type(ButtonType.Normal)
+          .backgroundColor(Color.Transparent)
+          .onClick(() => {
+            this.clearHistory();
+          })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 16, bottom: 12 })
+        
+        // 历史记录列表
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(this.searchHistory, (keyword: string) => {
+            Row({ space: 4 }) {
+              Text(keyword)
+                .fontSize(14)
+                .fontColor(this.getColors().textSecondary)
+                .layoutWeight(1)
+                .onClick(() => {
+                  this.searchWithHistory(keyword);
+                })
+              
+              SymbolGlyph($r('sys.symbol.xmark'))
+                .fontSize(12)
+                .fontColor([this.getColors().textTertiary])
+                .padding({ left: 8, right: 4 })
+                .onClick(() => {
+                  this.removeFromHistory(keyword);
+                })
+            }
+            .height(32)
+            .padding({ left: 12, right: 8 })
+            .margin({ right: 8, bottom: 8 })
+            .backgroundColor(this.getColors().secondaryBackground)
+            .borderRadius(16)
+          })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16 })
+      } else {
+        // 无历史记录
+        Column({ space: 16 }) {
+          SymbolGlyph($r('sys.symbol.magnifyingglass'))
+            .fontSize(64)
+            .fontColor([this.getColors().textTertiary])
+          
+          Text('输入关键词搜索配方')
+            .fontSize(16)
+            .fontColor(this.getColors().textSecondary)
+          
+          Text('搜索建议:')
+            .fontSize(14)
+            .fontColor(this.getColors().textSecondary)
+            .margin({ top: 24 })
+          
+          Column({ space: 8 }) {
+            Text('• 输入配方名称')
+              .fontSize(14)
+              .fontColor(this.getColors().textTertiary)
+            Text('• 支持模糊搜索')
+              .fontSize(14)
+              .fontColor(this.getColors().textTertiary)
+          }
+          .alignItems(HorizontalAlign.Start)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+        .padding(32)
+      }
+    }
+    .width('100%')
+    .layoutWeight(1)
+  }
+  
+  /**
+   * 构建空状态（已废弃，由 buildHistoryState 替代）
    */
   @Builder
   buildEmptyState() {
     Column({ space: 16 }) {
-      Text('🔍')
+      SymbolGlyph($r('sys.symbol.magnifyingglass'))
         .fontSize(64)
-        .opacity(0.3)
+        .fontColor(['#CCCCCC'])
       
       Text('输入关键词搜索配方')
         .fontSize(16)
@@ -500,9 +639,6 @@ export struct SearchPage {
           .fontSize(14)
           .fontColor('#999999')
         Text('• 支持模糊搜索')
-          .fontSize(14)
-          .fontColor('#999999')
-        Text('• 实时显示结果')
           .fontSize(14)
           .fontColor('#999999')
       }
@@ -527,7 +663,7 @@ export struct SearchPage {
       
       Text('搜索中...')
         .fontSize(14)
-        .fontColor('#999999')
+        .fontColor(this.getColors().textTertiary)
     }
     .width('100%')
     .layoutWeight(1)
@@ -540,9 +676,9 @@ export struct SearchPage {
   @Builder
   buildErrorState() {
     Column({ space: 16 }) {
-      Text('⚠️')
+      SymbolGlyph($r('sys.symbol.exclamationmark_triangle'))
         .fontSize(64)
-        .opacity(0.3)
+        .fontColor(['#FF3B30'])
       
       Text(this.errorMessage || '搜索失败')
         .fontSize(14)
@@ -553,10 +689,15 @@ export struct SearchPage {
       
       // 提示信息卡片
       Column({ space: 8 }) {
-        Text('💡 提示')
-          .fontSize(12)
-          .fontColor('#666666')
-          .fontWeight(FontWeight.Bold)
+        Row({ space: 4 }) {
+          SymbolGlyph($r('sys.symbol.lightbulb'))
+            .fontSize(14)
+            .fontColor(['#666666'])
+          Text('提示')
+            .fontSize(12)
+            .fontColor('#666666')
+            .fontWeight(FontWeight.Bold)
+        }
         
         Column({ space: 4 }) {
           Text('• 已尝试使用本地过滤方案')
@@ -586,24 +727,10 @@ export struct SearchPage {
           .fontSize(14)
           .backgroundColor('#1890ff')
           .borderRadius(20)
-          .padding({ left: 20, right: 20, top: 8, bottom: 8 })
+          .padding({ left: 24, right: 24, top: 8, bottom: 8 })
           .onClick(() => {
             console.info('[SearchPage] User clicked retry button');
             this.fetchRecipes(true);
-          })
-        
-        Button('测试连接')
-          .fontSize(14)
-          .backgroundColor('#52C41A')
-          .borderRadius(20)
-          .padding({ left: 20, right: 20, top: 8, bottom: 8 })
-          .onClick(async () => {
-            console.info('[SearchPage] User clicked test connection button');
-            await this.testAPIConnection();
-            promptAction.showToast({ 
-              message: '请查看控制台日志',
-              duration: 2000
-            });
           })
       }
       .margin({ top: 16 })
@@ -620,18 +747,18 @@ export struct SearchPage {
   @Builder
   buildNoResultsState() {
     Column({ space: 16 }) {
-      Text('📭')
+      SymbolGlyph($r('sys.symbol.doc_text'))
         .fontSize(64)
-        .opacity(0.3)
+        .fontColor([this.getColors().textTertiary])
       
       Text(`未找到"${this.searchText}"相关的配方`)
         .fontSize(16)
-        .fontColor('#999999')
+        .fontColor(this.getColors().textSecondary)
         .textAlign(TextAlign.Center)
       
       Text('试试其他关键词吧')
         .fontSize(14)
-        .fontColor('#CCCCCC')
+        .fontColor(this.getColors().textTertiary)
         .margin({ top: 8 })
     }
     .width('100%')
@@ -650,12 +777,12 @@ export struct SearchPage {
       Row() {
         Text(`找到 ${this.recipes.length} 个配方`)
           .fontSize(14)
-          .fontColor('#666666')
+          .fontColor(this.getColors().textSecondary)
         
         if (this.currentPage < this.totalPages) {
           Text(` (第 ${this.currentPage}/${this.totalPages} 页)`)
             .fontSize(12)
-            .fontColor('#999999')
+            .fontColor(this.getColors().textTertiary)
         }
       }
       .width('100%')
@@ -688,7 +815,7 @@ export struct SearchPage {
                 .color('#1890ff')
               Text('加载中...')
                 .fontSize(14)
-                .fontColor('#999999')
+                .fontColor(this.getColors().textTertiary)
                 .margin({ left: 12 })
             }
             .width('100%')
@@ -702,7 +829,7 @@ export struct SearchPage {
           ListItem() {
             Text('已显示全部结果')
               .fontSize(12)
-              .fontColor('#CCCCCC')
+              .fontColor(this.getColors().textTertiary)
               .width('100%')
               .textAlign(TextAlign.Center)
               .padding({ top: 16, bottom: 16 })
@@ -730,18 +857,18 @@ export struct SearchPage {
         Text(recipe.name)
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#1A1A1A')
+          .fontColor(this.getColors().textPrimary)
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         
         Row({ space: 12 }) {
           Text(`👤 ${recipe.createdBy}`)
             .fontSize(13)
-            .fontColor('#666666')
+            .fontColor(this.getColors().textSecondary)
           
           Text('|')
             .fontSize(13)
-            .fontColor('#DDDDDD')
+            .fontColor(this.getColors().divider)
           
           Text(`${recipe.estimatedAbv.toFixed(1)}% ABV`)
             .fontSize(13)
@@ -754,15 +881,20 @@ export struct SearchPage {
       
       // 分隔线
       Divider()
-        .color('#F0F0F0')
+        .color(this.getColors().divider)
       
       // 底部信息
       Row() {
         // 原料信息
         if (recipe.ingredients && typeof recipe.ingredients === 'string') {
-          Text(`🧪 ${recipe.ingredients.split(',').length} 种原料`)
-            .fontSize(12)
-            .fontColor('#999999')
+          Row({ space: 4 }) {
+            SymbolGlyph($r('sys.symbol.list_bullet'))
+              .fontSize(14)
+              .fontColor([this.getColors().textTertiary])
+            Text(`${recipe.ingredients.split(',').length} 种原料`)
+              .fontSize(12)
+              .fontColor(this.getColors().textTertiary)
+          }
         }
         
         Blank()
@@ -770,19 +902,21 @@ export struct SearchPage {
         // 互动信息
         Row({ space: 16 }) {
           Row({ space: 4 }) {
-            Text('❤️')
+            SymbolGlyph($r('sys.symbol.heart_fill'))
               .fontSize(14)
+              .fontColor(['#FF3B30'])
             Text(recipe.likeCount.toString())
               .fontSize(12)
-              .fontColor('#999999')
+              .fontColor(this.getColors().textTertiary)
           }
           
           Row({ space: 4 }) {
-            Text('⭐')
+            SymbolGlyph($r('sys.symbol.star_fill'))
               .fontSize(14)
+              .fontColor(['#FFB800'])
             Text(recipe.favoriteCount.toString())
               .fontSize(12)
-              .fontColor('#999999')
+              .fontColor(this.getColors().textTertiary)
           }
         }
       }
@@ -790,11 +924,11 @@ export struct SearchPage {
     }
     .width('100%')
     .padding(16)
-    .backgroundColor(Color.White)
+    .backgroundColor(this.getColors().cardBackground)
     .borderRadius(12)
     .shadow({
       radius: 8,
-      color: '#00000010',
+      color: this.isDarkMode ? '#00000030' : '#00000010',
       offsetX: 0,
       offsetY: 2
     })

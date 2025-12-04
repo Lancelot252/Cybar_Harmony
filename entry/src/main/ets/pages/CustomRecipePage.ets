@@ -5,6 +5,7 @@ import { router } from '@kit.ArkUI';
 import APIService, { AIGeneratedRecipe, AIIngredient } from '../services/APIService';
 import { APIIngredient } from '../models/Recipe';
 import promptAction from '@ohos.promptAction';
+import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
 
 // 配料项接口
 interface IngredientItem {
@@ -51,6 +52,13 @@ interface CreateRecipeData {
 
 @Component
 export struct CustomRecipePage {
+  // 深色模式支持
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
+  
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
+  
   // 基础信息
   @State cocktailName: string = '';
   @State cocktailDescription: string = '';
@@ -517,6 +525,7 @@ export struct CustomRecipePage {
         Button() {
           Text('←')
             .fontSize(24)
+            .fontColor(this.getColors().textPrimary)
         }
         .type(ButtonType.Normal)
         .backgroundColor(Color.Transparent)
@@ -529,6 +538,7 @@ export struct CustomRecipePage {
         Text('自定义配方')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.getColors().textPrimary)
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
         
@@ -538,6 +548,7 @@ export struct CustomRecipePage {
       .width('100%')
       .height(56)
       .padding({ left: 8, right: 16 })
+      .backgroundColor(this.getColors().cardBackground)
       
       // 内容区域 - 滚动视图
       Scroll() {
@@ -570,7 +581,7 @@ export struct CustomRecipePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor(this.getColors().background)
   }
   
   /**
@@ -582,8 +593,9 @@ export struct CustomRecipePage {
       // 标题栏 - 可展开/收起
       Row() {
         Row({ space: 8 }) {
-          Text('🍸')
+          SymbolGlyph($r('sys.symbol.wand_and_stars'))
             .fontSize(20)
+            .fontColor(['#1890ff'])
           Text('AI智能调酒师')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
@@ -610,18 +622,19 @@ export struct CustomRecipePage {
       // 说明文字
       Text('没有灵感？描述您想要的口味，让AI为您量身定制鸡尾酒配方')
         .fontSize(13)
-        .fontColor('#666666')
+        .fontColor(this.getColors().textSecondary)
       
       if (this.showAISection) {
         Column({ space: 14 }) {
           // 口味描述
           Column({ space: 6 }) {
             Row({ space: 4 }) {
-              Text('🎯')
+              SymbolGlyph($r('sys.symbol.scope'))
                 .fontSize(14)
+                .fontColor([this.getColors().textPrimary])
               Text('口味描述')
                 .fontSize(14)
-                .fontColor('#333333')
+                .fontColor(this.getColors().textPrimary)
                 .fontWeight(FontWeight.Medium)
             }
             
@@ -632,7 +645,8 @@ export struct CustomRecipePage {
               .onChange((value: string) => {
                 this.aiTasteDescription = value;
               })
-              .backgroundColor(Color.White)
+              .backgroundColor(this.getColors().inputBackground)
+              .fontColor(this.getColors().textPrimary)
               .borderRadius(8)
               .height(100)
           }
@@ -644,19 +658,20 @@ export struct CustomRecipePage {
             // 适用场合
             Column({ space: 6 }) {
               Row({ space: 4 }) {
-                Text('🎉')
+                SymbolGlyph($r('sys.symbol.star'))
                   .fontSize(14)
+                  .fontColor([this.getColors().textSecondary])
                 Text('适用场合')
                   .fontSize(13)
-                  .fontColor('#666666')
+                  .fontColor(this.getColors().textSecondary)
               }
               
               Select(this.occasionOptions.map(opt => ({ value: opt } as SelectOption)))
                 .selected(this.occasionOptions.indexOf(this.aiOccasion))
                 .value(this.aiOccasion.length > 0 ? this.aiOccasion : '请选择（可选）')
                 .font({ size: 14 })
-                .fontColor('#333333')
-                .backgroundColor(Color.White)
+                .fontColor(this.getColors().textPrimary)
+                .backgroundColor(this.getColors().inputBackground)
                 .borderRadius(8)
                 .onSelect((index: number) => {
                   this.aiOccasion = this.occasionOptions[index];
@@ -668,19 +683,20 @@ export struct CustomRecipePage {
             // 酒精强度
             Column({ space: 6 }) {
               Row({ space: 4 }) {
-                Text('💪')
+                SymbolGlyph($r('sys.symbol.bolt_fill'))
                   .fontSize(14)
+                  .fontColor([this.getColors().textSecondary])
                 Text('酒精强度')
                   .fontSize(13)
-                  .fontColor('#666666')
+                  .fontColor(this.getColors().textSecondary)
               }
               
               Select(this.strengthOptions.map(opt => ({ value: opt } as SelectOption)))
                 .selected(this.strengthOptions.indexOf(this.aiAlcoholStrength))
                 .value(this.aiAlcoholStrength.length > 0 ? this.aiAlcoholStrength : '请选择（可选）')
                 .font({ size: 14 })
-                .fontColor('#333333')
-                .backgroundColor(Color.White)
+                .fontColor(this.getColors().textPrimary)
+                .backgroundColor(this.getColors().inputBackground)
                 .borderRadius(8)
                 .onSelect((index: number) => {
                   this.aiAlcoholStrength = this.strengthOptions[index];
@@ -712,8 +728,9 @@ export struct CustomRecipePage {
               }
             } else {
               Row({ space: 8 }) {
-                Text('🤖')
+                SymbolGlyph($r('sys.symbol.wand_and_stars'))
                   .fontSize(18)
+                  .fontColor([Color.White])
                 Text('生成AI配方')
                   .fontSize(16)
                   .fontColor(Color.White)
@@ -736,9 +753,9 @@ export struct CustomRecipePage {
     }
     .width('100%')
     .padding(16)
-    .backgroundColor(Color.White)
+    .backgroundColor(this.getColors().cardBackground)
     .borderRadius(12)
-    .shadow({ radius: 4, color: 'rgba(0,0,0,0.08)', offsetX: 0, offsetY: 2 })
+    .shadow({ radius: 4, color: this.isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.08)', offsetX: 0, offsetY: 2 })
   }
   
   /**
@@ -750,19 +767,20 @@ export struct CustomRecipePage {
       Text('基本信息')
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#1A1A1A')
+        .fontColor(this.getColors().textPrimary)
       
       Column({ space: 10 }) {
         Column({ space: 6 }) {
           Text('名称')
             .fontSize(14)
-            .fontColor('#666666')
+            .fontColor(this.getColors().textSecondary)
           
           TextInput({ placeholder: '输入鸡尾酒名称', text: this.cocktailName })
             .onChange((value: string) => {
               this.cocktailName = value;
             })
-            .backgroundColor(Color.White)
+            .backgroundColor(this.getColors().inputBackground)
+            .fontColor(this.getColors().textPrimary)
             .borderRadius(8)
         }
         .alignItems(HorizontalAlign.Start)
@@ -771,13 +789,14 @@ export struct CustomRecipePage {
         Column({ space: 6 }) {
           Text('描述(可选)')
             .fontSize(14)
-            .fontColor('#666666')
+            .fontColor(this.getColors().textSecondary)
           
           TextArea({ placeholder: '口味/风格简介', text: this.cocktailDescription })
             .onChange((value: string) => {
               this.cocktailDescription = value;
             })
-            .backgroundColor(Color.White)
+            .backgroundColor(this.getColors().inputBackground)
+            .fontColor(this.getColors().textPrimary)
             .borderRadius(8)
             .height(80)
         }
@@ -785,7 +804,7 @@ export struct CustomRecipePage {
         .width('100%')
       }
       .padding(16)
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
       .borderRadius(12)
     }
     .width('100%')
@@ -801,7 +820,7 @@ export struct CustomRecipePage {
       Text('原料选择')
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#1A1A1A')
+        .fontColor(this.getColors().textPrimary)
       
       Column({ space: 12 }) {
         // 分类标签
@@ -832,7 +851,7 @@ export struct CustomRecipePage {
           .onChange((value: string) => {
             this.ingredientSearch = value;
           })
-          .backgroundColor(Color.White)
+          .backgroundColor(this.getColors().inputBackground)
         
         // 配料网格
         if (this.loadingIngredients) {
@@ -843,7 +862,7 @@ export struct CustomRecipePage {
               .color('#1890ff')
             Text('加载配料...')
               .fontSize(14)
-              .fontColor('#999999')
+              .fontColor(this.getColors().textTertiary)
               .margin({ left: 10 })
           }
           .padding(20)
@@ -863,7 +882,7 @@ export struct CustomRecipePage {
         }
       }
       .padding(16)
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
       .borderRadius(12)
     }
     .width('100%')
@@ -901,7 +920,7 @@ export struct CustomRecipePage {
     Column({ space: 6 }) {
       Text(item.name)
         .fontSize(13)
-        .fontColor(this.isIngredientSelected(item.id) ? Color.White : '#333333')
+        .fontColor(this.isIngredientSelected(item.id) ? Color.White : this.getColors().textPrimary)
         .textAlign(TextAlign.Center)
         .maxLines(2)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -910,16 +929,16 @@ export struct CustomRecipePage {
       if (item.abv && item.abv > 0) {
         Text(`${item.abv}%`)
           .fontSize(11)
-          .fontColor(this.isIngredientSelected(item.id) ? 'rgba(255,255,255,0.8)' : '#999999')
+          .fontColor(this.isIngredientSelected(item.id) ? 'rgba(255,255,255,0.8)' : this.getColors().textTertiary)
       }
     }
     .width('100%')
     .padding(10)
-    .backgroundColor(this.isIngredientSelected(item.id) ? '#1890ff' : '#F5F5F5')
+    .backgroundColor(this.isIngredientSelected(item.id) ? '#1890ff' : this.getColors().secondaryBackground)
     .borderRadius(8)
     .border({
       width: this.isIngredientSelected(item.id) ? 2 : 1,
-      color: this.isIngredientSelected(item.id) ? '#1890ff' : '#E8E8E8'
+      color: this.isIngredientSelected(item.id) ? '#1890ff' : this.getColors().divider
     })
     .onClick(() => {
       this.toggleIngredient(item);
@@ -935,7 +954,7 @@ export struct CustomRecipePage {
       Text('已选配料')
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
-        .fontColor('#333333')
+        .fontColor(this.getColors().textPrimary)
         .margin({ top: 12 })
       
       // 按分类分组显示
@@ -945,7 +964,7 @@ export struct CustomRecipePage {
             Text(this.categoryNames[cat] || cat)
               .fontSize(14)
               .fontWeight(FontWeight.Medium)
-              .fontColor('#666666')
+              .fontColor(this.getColors().textSecondary)
             
             ForEach(this.getSelectedByCategory(cat), (ing: SelectedIngredient) => {
               this.buildSelectedIngredientRow(ing)
@@ -969,7 +988,7 @@ export struct CustomRecipePage {
       // 配料名称
       Text(ing.name)
         .fontSize(14)
-        .fontColor('#333333')
+        .fontColor(this.getColors().textPrimary)
         .layoutWeight(1)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -980,7 +999,8 @@ export struct CustomRecipePage {
         .width(70)
         .height(36)
         .fontSize(13)
-        .backgroundColor('#F5F5F5')
+        .backgroundColor(this.getColors().inputBackground)
+        .fontColor(this.getColors().textPrimary)
         .borderRadius(6)
         .onChange((value: string) => {
           const num = parseFloat(value);
@@ -991,14 +1011,14 @@ export struct CustomRecipePage {
       
       Text(ing.unit)
         .fontSize(12)
-        .fontColor('#999999')
+        .fontColor(this.getColors().textTertiary)
         .width(40)
       
       // 删除按钮
       Button() {
-        Text('✕')
+        SymbolGlyph($r('sys.symbol.xmark'))
           .fontSize(16)
-          .fontColor('#FF3B30')
+          .fontColor(['#FF3B30'])
       }
       .type(ButtonType.Normal)
       .backgroundColor(Color.Transparent)
@@ -1010,7 +1030,7 @@ export struct CustomRecipePage {
     }
     .width('100%')
     .padding(12)
-    .backgroundColor('#FAFAFA')
+    .backgroundColor(this.getColors().secondaryBackground)
     .borderRadius(8)
   }
   
@@ -1023,7 +1043,7 @@ export struct CustomRecipePage {
       Text('酒精度计算')
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#1A1A1A')
+        .fontColor(this.getColors().textPrimary)
       
       Row({ space: 16 }) {
         // ABV数值显示
@@ -1035,24 +1055,24 @@ export struct CustomRecipePage {
           
           Text('% ABV')
             .fontSize(14)
-            .fontColor('#999999')
+            .fontColor(this.getColors().textTertiary)
         }
         
         Divider()
           .vertical(true)
           .height(60)
-          .color('#E8E8E8')
+          .color(this.getColors().divider)
         
         // 描述
         Text(this.abvDescription)
           .fontSize(14)
-          .fontColor('#666666')
+          .fontColor(this.getColors().textSecondary)
           .layoutWeight(1)
           .maxLines(2)
       }
       .width('100%')
       .padding(16)
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
       .borderRadius(12)
     }
     .width('100%')
@@ -1068,7 +1088,7 @@ export struct CustomRecipePage {
       Text('制作步骤')
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#1A1A1A')
+        .fontColor(this.getColors().textPrimary)
       
       Column({ space: 10 }) {
         ForEach(this.steps, (step: StepEntry) => {
@@ -1084,7 +1104,8 @@ export struct CustomRecipePage {
               .onChange((value: string) => {
                 this.updateStepText(step.id, value);
               })
-              .backgroundColor('#F5F5F5')
+              .backgroundColor(this.getColors().inputBackground)
+              .fontColor(this.getColors().textPrimary)
               .borderRadius(8)
               .layoutWeight(1)
               .height(60)
@@ -1128,7 +1149,7 @@ export struct CustomRecipePage {
       }
       .width('100%')
       .padding(16)
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
       .borderRadius(12)
     }
     .width('100%')

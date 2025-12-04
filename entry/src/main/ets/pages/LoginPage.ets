@@ -3,14 +3,20 @@
 
 import APIService from '../services/APIService';
 import promptAction from '@ohos.promptAction';
+import { ThemeColors, LightTheme, DarkTheme } from '../common/ThemeManager'
 
 @Component
 export struct LoginPage {
+  @StorageProp('isDarkMode') isDarkMode: boolean = false
   @State username: string = '';
   @State password: string = '';
   @State isLoading: boolean = false;
   onSuccess?: () => void;
   onCancel?: () => void;
+
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme
+  }
   
   private async handleLogin() {
     if (this.username.trim() === '' || this.password.trim() === '') {
@@ -49,9 +55,9 @@ export struct LoginPage {
         Button({ type: ButtonType.Normal }) {
           Text('取消')
             .fontSize(16)
-            .fontColor('#007DFF')
+            .fontColor(this.getColors().primary)
         }
-        .backgroundColor('#00000000')
+        .backgroundColor(Color.Transparent)
         .onClick(() => {
           if (this.onCancel) {
             this.onCancel();
@@ -63,6 +69,7 @@ export struct LoginPage {
         Text('登录')
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
+          .fontColor(this.getColors().textPrimary)
         
         Blank()
         
@@ -81,15 +88,16 @@ export struct LoginPage {
             Image($r('sys.symbol.drop'))
               .width(60)
               .height(60)
-              .fillColor('#007DFF')
+              .fillColor(this.getColors().primary)
             
             Text('欢迎回来')
               .fontSize(28)
               .fontWeight(FontWeight.Bold)
+              .fontColor(this.getColors().textPrimary)
             
             Text('登录您的账户')
               .fontSize(14)
-              .fontColor('#999999')
+              .fontColor(this.getColors().textSecondary)
           }
           .margin({ top: 40, bottom: 60 })
           
@@ -99,13 +107,15 @@ export struct LoginPage {
             Column({ space: 8 }) {
               Text('用户名')
                 .fontSize(12)
-                .fontColor('#999999')
+                .fontColor(this.getColors().textSecondary)
                 .alignSelf(ItemAlign.Start)
               
               TextInput({ placeholder: '请输入用户名', text: this.username })
                 .width('100%')
                 .height(48)
-                .backgroundColor('#F5F5F5')
+                .backgroundColor(this.getColors().inputBackground)
+                .fontColor(this.getColors().textPrimary)
+                .placeholderColor(this.getColors().textTertiary)
                 .borderRadius(8)
                 .padding({ left: 12, right: 12 })
                 .onChange((value: string) => {
@@ -118,14 +128,16 @@ export struct LoginPage {
             Column({ space: 8 }) {
               Text('密码')
                 .fontSize(12)
-                .fontColor('#999999')
+                .fontColor(this.getColors().textSecondary)
                 .alignSelf(ItemAlign.Start)
               
               TextInput({ placeholder: '请输入密码', text: this.password })
                 .width('100%')
                 .height(48)
                 .type(InputType.Password)
-                .backgroundColor('#F5F5F5')
+                .backgroundColor(this.getColors().inputBackground)
+                .fontColor(this.getColors().textPrimary)
+                .placeholderColor(this.getColors().textTertiary)
                 .borderRadius(8)
                 .padding({ left: 12, right: 12 })
                 .onChange((value: string) => {
@@ -141,18 +153,18 @@ export struct LoginPage {
                   LoadingProgress()
                     .width(20)
                     .height(20)
-                    .color('#FFFFFF')
+                    .color(Color.White)
                     .margin({ right: 8 })
                 }
                 Text(this.isLoading ? '登录中...' : '登录')
                   .fontSize(16)
-                  .fontColor('#FFFFFF')
+                  .fontColor(Color.White)
                   .fontWeight(FontWeight.Medium)
               }
             }
             .width('100%')
             .height(48)
-            .backgroundColor('#007DFF')
+            .backgroundColor(this.getColors().primary)
             .borderRadius(12)
             .margin({ top: 8 })
             .enabled(!this.isLoading && this.username.trim() !== '' && this.password.trim() !== '')
@@ -170,6 +182,6 @@ export struct LoginPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(this.getColors().background)
   }
 }

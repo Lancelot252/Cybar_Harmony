@@ -6,11 +6,13 @@ import { LoginPage } from './LoginPage';
 import { RegisterPage } from './RegisterPage';
 import { router } from '@kit.ArkUI';
 import promptAction from '@ohos.promptAction';
+import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
 
 @Component
 export struct UserProfilePage {
   // 从外部传入的刷新触发器
   @Prop @Watch('onRefreshTriggerChange') refreshTrigger: number = 0;
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
   
   @State isLoggedIn: boolean = false;
   @State userName: string = '未登录';
@@ -27,6 +29,11 @@ export struct UserProfilePage {
   @State favoritesError: string = '';
   @State myRecipesError: string = '';
   @State loginStatusDebug: string = '';
+  
+  // 获取当前主题色
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
   
   // 刷新触发器变化时刷新数据
   onRefreshTriggerChange() {
@@ -201,11 +208,13 @@ export struct UserProfilePage {
           Text('我的')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
+            .fontColor(this.getColors().textPrimary)
         }
         .width('100%')
         .height(56)
         .padding({ left: 16, right: 16 })
         .justifyContent(FlexAlign.Center)
+        .backgroundColor(this.getColors().cardBackground)
         
         if (this.isLoggedIn) {
           // 已登录状态
@@ -217,7 +226,7 @@ export struct UserProfilePage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F5F5F5')
+      .backgroundColor(this.getColors().background)
       
       // 登录弹窗
       if (this.showLogin) {
@@ -234,7 +243,7 @@ export struct UserProfilePage {
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('#FFFFFF')
+        .backgroundColor(this.getColors().cardBackground)
         .transition({ type: TransitionType.Insert, opacity: 0, translate: { y: 1000 } })
         .transition({ type: TransitionType.Delete, opacity: 0, translate: { y: 1000 } })
       }
@@ -254,7 +263,7 @@ export struct UserProfilePage {
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('#FFFFFF')
+        .backgroundColor(this.getColors().cardBackground)
         .transition({ type: TransitionType.Insert, opacity: 0, translate: { y: 1000 } })
         .transition({ type: TransitionType.Delete, opacity: 0, translate: { y: 1000 } })
       }
@@ -271,23 +280,25 @@ export struct UserProfilePage {
       
       Column({ space: 20 }) {
         // 图标
-        Text('👤')
+        SymbolGlyph($r('sys.symbol.person'))
           .fontSize(80)
+          .fontColor([this.getColors().textTertiary])
         
         // 提示文字
         Text('登录以使用完整功能')
           .fontSize(20)
           .fontWeight(FontWeight.Medium)
+          .fontColor(this.getColors().textPrimary)
         
         Text('登录后可以收藏配方、创建配方等')
           .fontSize(14)
-          .fontColor('#999999')
+          .fontColor(this.getColors().textSecondary)
           .textAlign(TextAlign.Center)
           .padding({ left: 32, right: 32 })
 
         Text(this.loginStatusDebug)
           .fontSize(12)
-          .fontColor('#BBBBBB')
+          .fontColor(this.getColors().textTertiary)
           .textAlign(TextAlign.Center)
           .padding({ left: 32, right: 32 })
         
@@ -309,7 +320,7 @@ export struct UserProfilePage {
             .height(48)
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
-            .backgroundColor('rgba(0, 125, 255, 0.1)')
+            .backgroundColor(this.isDarkMode ? 'rgba(0, 125, 255, 0.2)' : 'rgba(0, 125, 255, 0.1)')
             .fontColor('#007DFF')
             .borderRadius(12)
             .onClick(() => {
@@ -334,16 +345,18 @@ export struct UserProfilePage {
       Column({ space: 24 }) {
         // 用户信息卡片
         Column({ space: 10 }) {
-          Text('👤')
+          SymbolGlyph($r('sys.symbol.person_fill'))
             .fontSize(90)
+            .fontColor(['#007DFF'])
           
           Text(this.userName)
             .fontSize(22)
             .fontWeight(FontWeight.Bold)
+            .fontColor(this.getColors().textPrimary)
           
           Text(`总点赞数: ${this.totalLikes}`)
             .fontSize(14)
-            .fontColor('#999999')
+            .fontColor(this.getColors().textTertiary)
           
           if (this.userRole === 'admin') {
             Text('管理员')
@@ -356,36 +369,38 @@ export struct UserProfilePage {
 
           Text(this.loginStatusDebug)
             .fontSize(12)
-            .fontColor('#BBBBBB')
+            .fontColor(this.getColors().textTertiary)
             .textAlign(TextAlign.Center)
             .padding({ top: 4 })
         }
         .width('100%')
         .padding({ top: 20, bottom: 20 })
-        .backgroundColor('#FFFFFF')
+        .backgroundColor(this.getColors().cardBackground)
         .borderRadius(16)
-        .shadow({ radius: 5, color: 'rgba(0, 0, 0, 0.05)', offsetY: 2 })
+        .shadow({ radius: 5, color: this.isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.05)', offsetY: 2 })
         
         // 统计卡片
         Row({ space: 16 }) {
           // 我的配方
           Column({ space: 8 }) {
-            Text('📝')
+            SymbolGlyph($r('sys.symbol.doc_text'))
               .fontSize(32)
+              .fontColor(['#007DFF'])
             
             Text('我的配方')
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
+              .fontColor(this.getColors().textPrimary)
             
             Text(`${this.myRecipesCount} 个`)
               .fontSize(14)
-              .fontColor('#999999')
+              .fontColor(this.getColors().textTertiary)
           }
           .layoutWeight(1)
           .padding(14)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor(this.getColors().cardBackground)
           .borderRadius(16)
-          .shadow({ radius: 4, color: 'rgba(0, 0, 0, 0.04)', offsetY: 2 })
+          .shadow({ radius: 4, color: this.isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.04)', offsetY: 2 })
           .onClick(() => {
             router.pushUrl({
               url: '@bundle:com.example.cybar/entry/ets/pages/MyRecipesPage'
@@ -397,22 +412,24 @@ export struct UserProfilePage {
           
           // 我的收藏
           Column({ space: 8 }) {
-            Text('⭐')
+            SymbolGlyph($r('sys.symbol.star_fill'))
               .fontSize(32)
+              .fontColor(['#FFB800'])
             
             Text('我的收藏')
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
+              .fontColor(this.getColors().textPrimary)
             
             Text(`${this.favoritesCount} 个`)
               .fontSize(14)
-              .fontColor('#999999')
+              .fontColor(this.getColors().textTertiary)
           }
           .layoutWeight(1)
           .padding(14)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor(this.getColors().cardBackground)
           .borderRadius(16)
-          .shadow({ radius: 4, color: 'rgba(0, 0, 0, 0.04)', offsetY: 2 })
+          .shadow({ radius: 4, color: this.isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.04)', offsetY: 2 })
           .onClick(() => {
             router.pushUrl({
               url: '@bundle:com.example.cybar/entry/ets/pages/MyFavoritesPage'
@@ -429,28 +446,29 @@ export struct UserProfilePage {
           // 管理员面板(仅管理员可见)
           if (this.userRole === 'admin') {
             Row() {
-              Text('⚙️')
+              SymbolGlyph($r('sys.symbol.gearshape_fill'))
                 .fontSize(24)
+                .fontColor([this.getColors().textSecondary])
                 .margin({ right: 12 })
               
               Column({ space: 6 }) {
                 Text('管理员面板')
                   .fontSize(16)
                   .fontWeight(FontWeight.Medium)
+                  .fontColor(this.getColors().textPrimary)
                   .alignSelf(ItemAlign.Start)
                 
                 Text('管理用户和配方')
                   .fontSize(12)
-                  .fontColor('#999999')
+                  .fontColor(this.getColors().textTertiary)
                   .alignSelf(ItemAlign.Start)
               }
             .alignItems(HorizontalAlign.Start)
             .layoutWeight(1)
             
-            Text('›')
+            SymbolGlyph($r('sys.symbol.chevron_right'))
               .fontSize(20)
-              .fontColor('#999999')
-              .fontWeight(FontWeight.Bold)
+              .fontColor([this.getColors().textTertiary])
           }
           .width('100%')
           .padding(18)
@@ -459,31 +477,32 @@ export struct UserProfilePage {
           })
           
           Divider()
-            .color('#F0F0F0')
+            .color(this.getColors().divider)
         }          // 设置
           Row() {
-            Text('⚙️')
+            SymbolGlyph($r('sys.symbol.gearshape'))
               .fontSize(24)
+              .fontColor([this.getColors().textSecondary])
               .margin({ right: 12 })
             
             Column({ space: 6 }) {
               Text('设置')
                 .fontSize(16)
                 .fontWeight(FontWeight.Medium)
+                .fontColor(this.getColors().textPrimary)
                 .alignSelf(ItemAlign.Start)
               
               Text('应用设置和偏好')
                 .fontSize(12)
-                .fontColor('#999999')
+                .fontColor(this.getColors().textTertiary)
                 .alignSelf(ItemAlign.Start)
             }
             .alignItems(HorizontalAlign.Start)
             .layoutWeight(1)
             
-            Text('›')
+            SymbolGlyph($r('sys.symbol.chevron_right'))
               .fontSize(20)
-              .fontColor('#999999')
-              .fontWeight(FontWeight.Bold)
+              .fontColor([this.getColors().textTertiary])
           }
           .width('100%')
           .padding(18)
@@ -497,12 +516,13 @@ export struct UserProfilePage {
           })
           
           Divider()
-            .color('#F0F0F0')
+            .color(this.getColors().divider)
           
           // 退出登录
           Row() {
-            Text('🚪')
+            SymbolGlyph($r('sys.symbol.arrow_left'))
               .fontSize(24)
+              .fontColor(['#FF3B30'])
               .margin({ right: 12 })
             
             Text('退出登录')
@@ -519,9 +539,9 @@ export struct UserProfilePage {
           })
         }
         .width('100%')
-        .backgroundColor('#FFFFFF')
+        .backgroundColor(this.getColors().cardBackground)
         .borderRadius(16)
-        .shadow({ radius: 4, color: 'rgba(0, 0, 0, 0.04)', offsetY: 2 })
+        .shadow({ radius: 4, color: this.isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.04)', offsetY: 2 })
       }
       .width('100%')
       .padding(16)

@@ -3,6 +3,7 @@
 import { apiService } from '../services/APIService';
 import { Recipe, RecipesResponse, Ingredient } from '../models/Recipe';
 import { router } from '@kit.ArkUI';
+import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
 
 class BasicDataSource implements IDataSource {
   private listeners: DataChangeListener[] = [];
@@ -80,9 +81,15 @@ export struct RecipesPage {
   @State currentPage: number = 1;
   @State totalPages: number = 1;
   @State errorMessage: string = '';
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
   
   private pageSize: number = 10; 
   private sortType: string = 'default';
+  
+  // 获取当前主题色
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
 
   aboutToAppear(): void {
     if (this.recipesDataSource.totalCount() === 0) {
@@ -160,6 +167,12 @@ export struct RecipesPage {
     .justifyContent(FlexAlign.Center)
   }
 
+  private goToSearch(): void {
+    router.pushUrl({
+      url: 'pages/SearchPage'
+    });
+  }
+
   build() {
     Column() {
       // Header
@@ -167,11 +180,19 @@ export struct RecipesPage {
         Text('发现') 
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.getColors().textPrimary)
+        
+        Blank()
+        
+        SymbolGlyph($r('sys.symbol.magnifyingglass'))
+          .fontSize(22)
+          .fontColor([this.getColors().textPrimary])
+          .onClick(() => this.goToSearch())
       }
       .width('100%')
       .height(56)
       .padding({ left: 16, right: 16 })
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
 
       if (this.recipesDataSource.totalCount() === 0 && !this.isLoading) {
          Column() {
@@ -203,7 +224,7 @@ export struct RecipesPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F6F6F6')
+    .backgroundColor(this.getColors().background)
   }
 }
 
@@ -213,7 +234,13 @@ export struct RecipesPage {
 @Component
 struct RecipeCard {
   @Prop recipe: Recipe;
+  @StorageProp('isDarkMode') isDarkMode: boolean = false;
   onTap?: () => void;
+  
+  // 获取当前主题色
+  private getColors(): ThemeColors {
+    return this.isDarkMode ? DarkTheme : LightTheme;
+  }
   
   build() {
     Column() {
@@ -232,7 +259,7 @@ struct RecipeCard {
           .fontWeight(FontWeight.Bold)
           .maxLines(3) // 作者最多3行但要注意高度
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .fontColor('#333')
+          .fontColor(this.getColors().textPrimary)
           .width('100%') // 确保文本容器占满
           .textAlign(TextAlign.Start)
         
@@ -242,7 +269,7 @@ struct RecipeCard {
                 .fontSize(13)
                 .fontWeight(FontWeight.Bold)
                 .fontColor('#FF6B00')
-                .backgroundColor('#FFF0E0')
+                .backgroundColor(this.isDarkMode ? '#3D2A1A' : '#FFF0E0')
                 .padding({ left: 6, right: 6, top: 2, bottom: 2 })
                 .borderRadius(4)
                 .flexShrink(0)
@@ -251,7 +278,7 @@ struct RecipeCard {
             if (this.recipe.ingredients && typeof this.recipe.ingredients === 'string') {
                 Text(this.recipe.ingredients.split(',').slice(0, 5).join(' '))
                     .fontSize(10)
-                    .fontColor('#999')
+                    .fontColor(this.getColors().textTertiary)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .layoutWeight(1) // 让配料文字占据剩余空间
@@ -272,7 +299,7 @@ struct RecipeCard {
                 
                 Text(this.recipe.createdBy)
                     .fontSize(10)
-                    .fontColor('#666')
+                    .fontColor(this.getColors().textSecondary)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     // 这里不设 layoutWeight，让它自然显示，但受限于外层 Row
@@ -282,11 +309,12 @@ struct RecipeCard {
             
             // 右边：点赞数量
             Row({ space: 2 }) {
-                Text(this.recipe.isLiked ? '❤️' : '🤍')
+                SymbolGlyph(this.recipe.isLiked ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
                     .fontSize(12)
+                    .fontColor([this.recipe.isLiked ? '#FF4D4F' : this.getColors().textSecondary])
                 Text(`${this.recipe.likeCount}`)
                     .fontSize(12)
-                    .fontColor('#666')
+                    .fontColor(this.getColors().textSecondary)
             }
             .flexShrink(0) // 点赞部分不许压缩，必须完整显示
             .margin({ left: 4 }) // 给左边留点距离
@@ -298,14 +326,14 @@ struct RecipeCard {
 
       }
       .padding(8)
-      .backgroundColor(Color.White)
+      .backgroundColor(this.getColors().cardBackground)
       .borderRadius({ bottomLeft: 8, bottomRight: 8 })
       .alignItems(HorizontalAlign.Start) // 内容左对齐
     }
     .width('100%') // 卡片占满 FlowItem 给的宽度
     .borderRadius(8)
-    .backgroundColor(Color.White)
-    .shadow({ radius: 4, color: '#1A000000', offsetY: 2 }) // 加一点阴影，增加立体感
+    .backgroundColor(this.getColors().cardBackground)
+    .shadow({ radius: 4, color: this.isDarkMode ? '#00000000' : '#1A000000', offsetY: 2 })
     .onClick(() => {
         if (this.onTap) this.onTap();
     })
