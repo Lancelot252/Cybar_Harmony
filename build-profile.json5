@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\dings\\.ohos\\config\\default_Cybar_Harmony_GDsqHhzNbigEgmNNA5iP7KEl0oxt7M_8nwBkJHz2EpE=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B9228E26797ED5F15F52B662F8F8056303A7307375F9851FFEB143039F4C35B43DCABAA650A9D59",
+          "profile": "C:\\Users\\dings\\.ohos\\config\\default_Cybar_Harmony_GDsqHhzNbigEgmNNA5iP7KEl0oxt7M_8nwBkJHz2EpE=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\dings\\.ohos\\config\\default_Cybar_Harmony_GDsqHhzNbigEgmNNA5iP7KEl0oxt7M_8nwBkJHz2EpE=.p12",
+          "storePassword": "0000001BB9EA9EE0522CAA8EF6780E2598C306F938AEFDBBB9615855B0BDF96FCD48E82E876A45F80FB199"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
