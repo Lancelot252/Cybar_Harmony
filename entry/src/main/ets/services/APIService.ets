@@ -95,9 +95,9 @@ type StateChangeListener = () => void;
 // ⚠️ 开发环境 - 本地调试（使用时取消注释这行，注释掉生产环境）
 // const BASE_URL: string = 'http://172.26.19.215:8080';
 // const BASE_URL: string = 'http://10.0.2.2:80';
-const BASE_URL: string = 'http://192.168.43.231:8080';
+// const BASE_URL: string = 'http://192.168.43.231:8080';
 // ⚠️ 生产环境 - 远程服务器（发布时取消注释这行，注释掉开发环境）
-// const BASE_URL: string = 'http://47.101.11.98:8080';
+const BASE_URL: string = 'http://47.101.11.98:8080';
 
 /**
  * API服务单例类
