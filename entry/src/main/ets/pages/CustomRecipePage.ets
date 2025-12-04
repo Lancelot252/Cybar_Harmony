@@ -2,7 +2,7 @@
 // 参考 Swift 版本 CustomRecipeView.swift 实现
 
 import { router } from '@kit.ArkUI';
-import APIService from '../services/APIService';
+import APIService, { AIGeneratedRecipe, AIIngredient } from '../services/APIService';
 import { APIIngredient } from '../common/models/Recipe';
 import promptAction from '@ohos.promptAction';
 
@@ -93,6 +93,19 @@ export struct CustomRecipePage {
   @State isSaving: boolean = false;
   @State saveMessage: string = '';
   
+  // AI智能调酒师状态
+  @State showAISection: boolean = true;
+  @State aiTasteDescription: string = '';
+  @State aiOccasion: string = '';
+  @State aiAlcoholStrength: string = '';
+  @State isGeneratingAI: boolean = false;
+  @State aiError: string = '';
+  
+  // 场合选项
+  private occasionOptions: string[] = ['派对聚会', '浪漫约会', '商务社交', '独自放松', '节日庆祝', '夏日消暑', '冬日温暖'];
+  // 酒精强度选项
+  private strengthOptions: string[] = ['无酒精', '低度(5%以下)', '中度(5-15%)', '中高度(15-25%)', '高度(25%以上)'];
+  
   aboutToAppear() {
     this.loadIngredients();
   }
@@ -146,6 +159,116 @@ export struct CustomRecipePage {
       this.ingredientLoadError = '加载配料失败';
     } finally {
       this.loadingIngredients = false;
+    }
+  }
+  
+  /**
+   * AI生成配方
+   */
+  private async generateAIRecipe() {
+    if (this.aiTasteDescription.trim().length === 0) {
+      this.aiError = '请输入口味描述';
+      return;
+    }
+    
+    this.isGeneratingAI = true;
+    this.aiError = '';
+    
+    try {
+      const apiService = APIService.getInstance();
+      const result = await apiService.generateAIRecipe(
+        this.aiTasteDescription,
+        this.aiOccasion.length > 0 ? this.aiOccasion : undefined,
+        this.aiAlcoholStrength.length > 0 ? this.aiAlcoholStrength : undefined
+      );
+      
+      // 填充生成的配方到表单
+      this.applyAIRecipe(result);
+      
+      // 显示成功提示
+      promptAction.showToast({
+        message: result.isDemo ? 'AI配方生成成功(演示模式)' : 'AI配方生成成功！',
+        duration: 2000
+      });
+      
+      // 收起AI区域
+      this.showAISection = false;
+      
+    } catch (error) {
+      console.error('[CustomRecipe] AI生成失败:', error);
+      if (error instanceof Error) {
+        this.aiError = error.message;
+      } else {
+        this.aiError = 'AI生成配方失败，请稍后重试';
+      }
+    } finally {
+      this.isGeneratingAI = false;
+    }
+  }
+  
+  /**
+   * 将AI生成的配方应用到表单
+   */
+  private applyAIRecipe(recipe: AIGeneratedRecipe) {
+    try {
+      // 安全检查
+      if (!recipe) {
+        console.error('[CustomRecipe] 配方数据为空');
+        this.aiError = '配方数据为空';
+        return;
+      }
+      
+      // 填充名称和描述
+      this.cocktailName = recipe.name || 'AI特调';
+      this.cocktailDescription = recipe.description || '';
+      
+      // 清空并填充配料
+      this.selectedIngredients = [];
+      if (recipe.ingredients && Array.isArray(recipe.ingredients) && recipe.ingredients.length > 0) {
+        const timestamp = Date.now();
+        for (let i = 0; i < recipe.ingredients.length; i++) {
+          const ing = recipe.ingredients[i];
+          if (ing && ing.name) {
+            this.selectedIngredients.push({
+              id: `ai_${i}_${timestamp}`,
+              name: ing.name,
+              volume: ing.volume || 30,
+              abv: ing.abv || 0,
+              unit: '毫升',
+              category: ing.category || 'other'
+            });
+          }
+        }
+      }
+      
+      // 清空并填充步骤
+      this.steps = [];
+      if (recipe.steps && Array.isArray(recipe.steps) && recipe.steps.length > 0) {
+        const timestamp = Date.now();
+        for (let i = 0; i < recipe.steps.length; i++) {
+          const step = recipe.steps[i];
+          if (step && typeof step === 'string') {
+            this.steps.push({
+              id: `step_${i}_${timestamp}`,
+              index: i + 1,
+              text: step
+            });
+          }
+        }
+      }
+      
+      // 确保至少有一个步骤
+      if (this.steps.length === 0) {
+        this.steps = [{ id: '1', index: 1, text: '' }];
+      }
+      
+      // 重新计算ABV
+      this.recalculateAbv();
+      
+      console.info('[CustomRecipe] 配方已应用:', this.cocktailName);
+    } catch (error) {
+      console.error('[CustomRecipe] 应用配方失败:', error);
+      this.aiError = '应用配方失败';
     }
   }
   
@@ -362,10 +485,21 @@ export struct CustomRecipePage {
       
       promptAction.showToast({ message: '配方保存成功!' });
       
-      // 延迟后返回
+      // 清空表单
+      this.cocktailName = '';
+      this.cocktailDescription = '';
+      this.selectedIngredients = [];
+      this.steps = [{ id: '1', index: 1, text: '' }];
+      this.estimatedAbv = 0;
+      
+      // 延迟后安全返回
       setTimeout(() => {
-        router.back();
-      }, 1000);
+        try {
+          router.back();
+        } catch (e) {
+          console.error('[CustomRecipe] 返回失败:', e);
+        }
+      }, 1500);
       
     } catch (error) {
       console.error('[CustomRecipe] 保存失败:', error);
@@ -408,6 +542,9 @@ export struct CustomRecipePage {
       // 内容区域 - 滚动视图
       Scroll() {
         Column({ space: 24 }) {
+          // AI智能调酒师
+          this.buildAISection()
+          
           // 基本信息
           this.buildBasicInfoSection()
           
@@ -434,6 +571,174 @@ export struct CustomRecipePage {
     .width('100%')
     .height('100%')
     .backgroundColor('#F5F5F5')
+  }
+  
+  /**
+   * AI智能调酒师区域
+   */
+  @Builder
+  buildAISection() {
+    Column({ space: 16 }) {
+      // 标题栏 - 可展开/收起
+      Row() {
+        Row({ space: 8 }) {
+          Text('🍸')
+            .fontSize(20)
+          Text('AI智能调酒师')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1890ff')
+        }
+        
+        Blank()
+        
+        Button() {
+          Text(this.showAISection ? '收起' : '展开')
+            .fontSize(13)
+            .fontColor('#1890ff')
+        }
+        .type(ButtonType.Normal)
+        .backgroundColor('rgba(24, 144, 255, 0.1)')
+        .borderRadius(12)
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .onClick(() => {
+          this.showAISection = !this.showAISection;
+        })
+      }
+      .width('100%')
+      
+      // 说明文字
+      Text('没有灵感？描述您想要的口味，让AI为您量身定制鸡尾酒配方')
+        .fontSize(13)
+        .fontColor('#666666')
+      
+      if (this.showAISection) {
+        Column({ space: 14 }) {
+          // 口味描述
+          Column({ space: 6 }) {
+            Row({ space: 4 }) {
+              Text('🎯')
+                .fontSize(14)
+              Text('口味描述')
+                .fontSize(14)
+                .fontColor('#333333')
+                .fontWeight(FontWeight.Medium)
+            }
+            
+            TextArea({ 
+              placeholder: '例如：我想要一款清爽的夏日鸡尾酒，带有柑橘香味，不要太甜，酒精度适中...', 
+              text: this.aiTasteDescription 
+            })
+              .onChange((value: string) => {
+                this.aiTasteDescription = value;
+              })
+              .backgroundColor(Color.White)
+              .borderRadius(8)
+              .height(100)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          
+          // 可选项 - 场合和酒精强度
+          Row({ space: 12 }) {
+            // 适用场合
+            Column({ space: 6 }) {
+              Row({ space: 4 }) {
+                Text('🎉')
+                  .fontSize(14)
+                Text('适用场合')
+                  .fontSize(13)
+                  .fontColor('#666666')
+              }
+              
+              Select(this.occasionOptions.map(opt => ({ value: opt } as SelectOption)))
+                .selected(this.occasionOptions.indexOf(this.aiOccasion))
+                .value(this.aiOccasion.length > 0 ? this.aiOccasion : '请选择（可选）')
+                .font({ size: 14 })
+                .fontColor('#333333')
+                .backgroundColor(Color.White)
+                .borderRadius(8)
+                .onSelect((index: number) => {
+                  this.aiOccasion = this.occasionOptions[index];
+                })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            
+            // 酒精强度
+            Column({ space: 6 }) {
+              Row({ space: 4 }) {
+                Text('💪')
+                  .fontSize(14)
+                Text('酒精强度')
+                  .fontSize(13)
+                  .fontColor('#666666')
+              }
+              
+              Select(this.strengthOptions.map(opt => ({ value: opt } as SelectOption)))
+                .selected(this.strengthOptions.indexOf(this.aiAlcoholStrength))
+                .value(this.aiAlcoholStrength.length > 0 ? this.aiAlcoholStrength : '请选择（可选）')
+                .font({ size: 14 })
+                .fontColor('#333333')
+                .backgroundColor(Color.White)
+                .borderRadius(8)
+                .onSelect((index: number) => {
+                  this.aiAlcoholStrength = this.strengthOptions[index];
+                })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+          }
+          .width('100%')
+          
+          // 错误提示
+          if (this.aiError.length > 0) {
+            Text(this.aiError)
+              .fontSize(13)
+              .fontColor('#FF3B30')
+          }
+          
+          // 生成按钮
+          Button() {
+            if (this.isGeneratingAI) {
+              Row({ space: 8 }) {
+                LoadingProgress()
+                  .width(20)
+                  .height(20)
+                  .color(Color.White)
+                Text('AI生成中...')
+                  .fontSize(16)
+                  .fontColor(Color.White)
+              }
+            } else {
+              Row({ space: 8 }) {
+                Text('🤖')
+                  .fontSize(18)
+                Text('生成AI配方')
+                  .fontSize(16)
+                  .fontColor(Color.White)
+                  .fontWeight(FontWeight.Medium)
+              }
+            }
+          }
+          .type(ButtonType.Normal)
+          .backgroundColor(this.isGeneratingAI ? '#999999' : '#667eea')
+          .borderRadius(25)
+          .width('100%')
+          .height(50)
+          .enabled(!this.isGeneratingAI)
+          .onClick(() => {
+            this.generateAIRecipe();
+          })
+        }
+        .width('100%')
+      }
+    }
+    .width('100%')
+    .padding(16)
+    .backgroundColor(Color.White)
+    .borderRadius(12)
+    .shadow({ radius: 4, color: 'rgba(0,0,0,0.08)', offsetX: 0, offsetY: 2 })
   }
   
   /**

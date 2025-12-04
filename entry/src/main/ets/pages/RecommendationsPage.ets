@@ -1,510 +1,540 @@
-// RecommendationsPage.ets - 推荐页面
-// 参考 Swift 项目中的 RecommendationsView 和 LOCAL_RECOMMENDATION_ALGORITHM.md
+// RecommendationsPage.ets - 推荐页面 (沉浸式双列瀑布流)
+// 包含「推荐」和「热榜」两个Tab
+// 参考 RecipesPage 的瀑布流实现
 
 import { router } from '@kit.ArkUI';
 import APIService from '../services/APIService';
-import { Recipe, APIIngredient } from '../common/models/Recipe';
+import { Recipe, RecipesResponse, Ingredient, RecommendedRecipe, RecommendationsResponse } from '../models/Recipe';
 import promptAction from '@ohos.promptAction';
 
-// 用户偏好模型
-class UserPreferences {
-  preferredAbv: number = 15.0;        // 偏好的酒精度
-  abvWeight: number = 1.0;            // 酒精度权重
-  popularityWeight: number = 0.1;     // 受欢迎程度权重
-  randomWeight: number = 0.3;         // 随机因子权重
-  favoriteCreators: string[] = [];    // 喜欢的创建者列表
-  ingredientWeights: Map<string, number> = new Map(); // 原料偏好
-  ingredientMatchWeight: number = 1.0; // 原料匹配权重
+// Tab类型枚举
+enum TabType {
+  RECOMMENDATION = 0,
+  HOT = 1
 }
 
-// 评分后的推荐项
-interface ScoredRec {
-  id: string;
-  name: string;
-  createdBy: string;
-  estimatedAbv: number;
-  matchPercentage: number;
-  reasons: string[];
-  likeCount: number;
-  favoriteCount: number;
-  ingredients: string;
-  ingredientDetails?: APIIngredient[]; // 详细配料信息
+// 推荐配方数据源类 - 用于LazyForEach
+class RecommendedRecipeDataSource implements IDataSource {
+  private listeners: DataChangeListener[] = [];
+  private originDataArray: RecommendedRecipe[] = [];
+
+  public totalCount(): number {
+    return this.originDataArray.length;
+  }
+
+  public getData(index: number): RecommendedRecipe {
+    return this.originDataArray[index];
+  }
+
+  public registerDataChangeListener(listener: DataChangeListener): void {
+    if (this.listeners.indexOf(listener) < 0) {
+      this.listeners.push(listener);
+    }
+  }
+
+  public unregisterDataChangeListener(listener: DataChangeListener): void {
+    const pos = this.listeners.indexOf(listener);
+    if (pos >= 0) {
+      this.listeners.splice(pos, 1);
+    }
+  }
+
+  public notifyDataReload(): void {
+    this.listeners.forEach(listener => {
+      listener.onDataReloaded();
+    })
+  }
+
+  public setData(data: RecommendedRecipe[]) {
+    this.originDataArray = data;
+    this.notifyDataReload();
+  }
+
+  public addData(data: RecommendedRecipe[]) {
+    const startIndex = this.originDataArray.length;
+    this.originDataArray = this.originDataArray.concat(data);
+    data.forEach((_, i) => {
+      this.notifyDataAdd(startIndex + i);
+    });
+  }
+
+  public notifyDataAdd(index: number): void {
+    this.listeners.forEach(listener => {
+      listener.onDataAdd(index);
+    })
+  }
+
+  public clear() {
+    this.originDataArray = [];
+    this.notifyDataReload();
+  }
 }
 
-// 评分中间结果
-interface ScoredItem {
-  recipe: Recipe;
-  score: number;
-  reasons: string[];
+// 热榜配方数据源类 - 用于LazyForEach
+class RecipeDataSource implements IDataSource {
+  private listeners: DataChangeListener[] = [];
+  private originDataArray: Recipe[] = [];
+
+  public totalCount(): number {
+    return this.originDataArray.length;
+  }
+
+  public getData(index: number): Recipe {
+    return this.originDataArray[index];
+  }
+
+  public registerDataChangeListener(listener: DataChangeListener): void {
+    if (this.listeners.indexOf(listener) < 0) {
+      this.listeners.push(listener);
+    }
+  }
+
+  public unregisterDataChangeListener(listener: DataChangeListener): void {
+    const pos = this.listeners.indexOf(listener);
+    if (pos >= 0) {
+      this.listeners.splice(pos, 1);
+    }
+  }
+
+  public notifyDataReload(): void {
+    this.listeners.forEach(listener => {
+      listener.onDataReloaded();
+    })
+  }
+
+  public notifyDataAdd(index: number): void {
+    this.listeners.forEach(listener => {
+      listener.onDataAdd(index);
+    })
+  }
+
+  public setData(data: Recipe[]) {
+    this.originDataArray = data;
+    this.notifyDataReload();
+  }
+
+  public addData(data: Recipe[]) {
+    const startIndex = this.originDataArray.length;
+    this.originDataArray = this.originDataArray.concat(data);
+    data.forEach((_, i) => {
+      this.notifyDataAdd(startIndex + i);
+    });
+  }
+
+  public clear() {
+    this.originDataArray = [];
+    this.notifyDataReload();
+  }
 }
 
 @Component
 export struct RecommendationsPage {
-  @State recs: Array<ScoredRec> = [];        // 当前展示的推荐(4个)
-  @State top20: Array<ScoredRec> = [];       // Top20 推荐池
-  @State isLoading: boolean = false;
-  @State isRefreshing: boolean = false;      // 下拉刷新状态
-  @State hasError: boolean = false;
-  @State errorMessage: string = '';
+  // Tab状态
+  @State currentTab: TabType = TabType.RECOMMENDATION;
+  @State selectedTabIndex: number = 0;
   
-  aboutToAppear() {
-    if (this.top20.length === 0) {
-      this.loadRecommendations();
-    } else {
-      this.pickDisplayFour();
+  // 推荐Tab数据
+  @State recommendDataSource: RecommendedRecipeDataSource = new RecommendedRecipeDataSource();
+  @State isLoadingRecommend: boolean = false;
+  @State isRefreshingRecommend: boolean = false;
+  @State recommendPage: number = 1;
+  @State recommendTotalPages: number = 1;
+  @State recommendError: string = '';
+  @State recommendMessage: string = ''; // 无推荐时的提示信息
+  @State recommendDataVersion: number = 0; // 数据版本号，用于强制刷新
+  @State showMatchPercentage: boolean = true; // 是否显示匹配度标签
+  @State showRecommendReason: boolean = true; // 是否显示推荐理由
+  
+  // 热榜Tab数据
+  @State hotDataSource: RecipeDataSource = new RecipeDataSource();
+  @State isLoadingHot: boolean = false;
+  @State isRefreshingHot: boolean = false;
+  @State hotPage: number = 1;
+  @State hotTotalPages: number = 1;
+  @State hotError: string = '';
+  @State hotDataVersion: number = 0; // 数据版本号，用于强制刷新
+  
+  private pageSize: number = 20; // 每页加载数量
+  private scroller: Scroller = new Scroller();
+  
+  aboutToAppear(): void {
+    // 初始加载推荐Tab数据
+    if (this.recommendDataSource.totalCount() === 0) {
+      this.loadRecommendations(true);
     }
   }
   
   /**
-   * 加载推荐
+   * 加载推荐Tab数据 (使用后端推荐算法，支持分页)
    */
-  private async loadRecommendations() {
-    this.isLoading = true;
-    this.hasError = false;
-    this.errorMessage = '';
+  private async loadRecommendations(reset: boolean): Promise<void> {
+    if (this.isLoadingRecommend) return;
+    
+    if (reset) {
+      this.recommendPage = 1;
+      this.recommendTotalPages = 1;
+    }
+    
+    this.isLoadingRecommend = true;
+    this.recommendError = '';
+    this.recommendMessage = '';
     
     try {
-      console.info('[RecommendationsPage] 开始加载推荐...');
       const apiService = APIService.getInstance();
+      const response: RecommendationsResponse = await apiService.fetchRecommendations(this.recommendPage, 10);
       
-      // 1. 获取随机100个配方
-      const randomRecipes = await apiService.fetchRandomRecipes(100);
-      console.info(`[RecommendationsPage] 获取到 ${randomRecipes.length} 个随机配方`);
+      console.info(`[RecommendationsPage] API响应:`, JSON.stringify(response));
       
-      if (!Array.isArray(randomRecipes) || randomRecipes.length === 0) {
-        this.errorMessage = '暂无配方数据';
-        this.hasError = true;
-        return;
+      const recommendations: Array<RecommendedRecipe> = response.recommendations || [];
+      
+      if (recommendations.length === 0 && response.message) {
+        this.recommendMessage = response.message;
       }
       
-      // 2. 构建用户偏好
-      const prefs = await this.buildUserPreferences();
+      // 打印每个推荐的详细信息
+      recommendations.forEach((rec, index) => {
+        console.info(`[RecommendationsPage] 推荐${index}: id=${rec.id}, name=${rec.name}, abv=${rec.estimatedAbv}, match=${rec.matchPercentage}%`);
+      });
       
-      // 3. 本地评分和排序
-      const recipes = this.parseRecipes(randomRecipes);
-      const scored = this.scoreAndSort(recipes, prefs);
+      if (reset) {
+        this.recommendDataSource.setData(recommendations);
+        // 刷新时更新版本号，强制LazyForEach重新渲染
+        this.recommendDataVersion++;
+      } else {
+        this.recommendDataSource.addData(recommendations);
+      }
       
-      // 4. 取Top20
-      this.top20 = scored.slice(0, Math.min(20, scored.length));
-      console.info(`[RecommendationsPage] Top20 推荐生成完成`);
+      // 更新分页信息
+      if (response.pagination) {
+        this.recommendPage = response.pagination.currentPage + 1;
+        this.recommendTotalPages = response.pagination.totalPages;
+      }
       
-      // 5. 从Top20中随机选4个展示
-      this.pickDisplayFour();
-      
+      console.info(`[RecommendationsPage] 推荐加载成功: ${recommendations.length}条, 第${response.pagination?.currentPage}页/${response.pagination?.totalPages}页`);
     } catch (error) {
-      console.error('[RecommendationsPage] 加载推荐失败:', error);
-      this.hasError = true;
-      this.errorMessage = error instanceof Error ? error.message : '加载失败';
+      console.error('[RecommendationsPage] 推荐加载失败:', error);
+      this.recommendError = '加载失败，请稍后重试';
     } finally {
-      this.isLoading = false;
+      this.isLoadingRecommend = false;
     }
   }
   
   /**
-   * 从Top20中随机选择4个展示
+   * 加载热榜Tab数据 (按点赞数排序)
    */
-  private pickDisplayFour() {
-    if (this.top20.length === 0) {
-      this.recs = [];
-      return;
+  private async loadHotList(reset: boolean): Promise<void> {
+    if (this.isLoadingHot) return;
+    
+    if (reset) {
+      this.hotPage = 1;
+      this.hotTotalPages = 1;
     }
     
-    // 洗牌算法
-    const pool = [...this.top20];
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      // ArkTS不支持解构赋值,使用临时变量
-      const temp = pool[i];
-      pool[i] = pool[j];
-      pool[j] = temp;
-    }
-    
-    this.recs = pool.slice(0, Math.min(4, pool.length));
-    console.info(`[RecommendationsPage] 展示 ${this.recs.length} 个推荐`);
-  }
-  
-  /**
-   * 刷新推荐 - 下拉刷新时调用
-   */
-  private async refreshRecommendations() {
-    console.info('[RecommendationsPage] 下拉刷新开始');
-    this.isRefreshing = true;
+    this.isLoadingHot = true;
+    this.hotError = '';
     
     try {
-      // 如果 top20 为空,则完整加载
-      if (this.top20.length === 0) {
-        await this.loadRecommendations();
+      const apiService = APIService.getInstance();
+      const result: object = await apiService.fetchRecipes(
+        this.hotPage,
+        this.pageSize,
+        '',
+        'likes' // 按点赞数排序
+      );
+      
+      const response: RecipesResponse = result as RecipesResponse;
+      const newRecipes: Array<Recipe> = response.recipes || [];
+      
+      if (reset) {
+        this.hotDataSource.setData(newRecipes);
+        // 刷新时更新版本号，强制LazyForEach重新渲染
+        this.hotDataVersion++;
       } else {
-        // 否则从 top20 中重新抽取4个
-        this.pickDisplayFour();
-        
-        // 手动延迟一下,让刷新动画正常显示
-        await new Promise<void>((resolve) => {
-          setTimeout(() => {
-            resolve();
-          }, 500);
-        });
+        this.hotDataSource.addData(newRecipes);
       }
+      
+      this.hotPage = response.currentPage + 1;
+      this.hotTotalPages = response.totalPages;
+      
+      console.info(`[RecommendationsPage] 热榜加载成功: ${newRecipes.length}条`);
+    } catch (error) {
+      console.error('[RecommendationsPage] 热榜加载失败:', error);
+      this.hotError = '加载失败，请稍后重试';
     } finally {
-      this.isRefreshing = false;
-      console.info('[RecommendationsPage] 下拉刷新完成');
+      this.isLoadingHot = false;
     }
   }
   
   /**
-   * 构建用户偏好
+   * 加载更多数据
    */
-  private async buildUserPreferences(): Promise<UserPreferences> {
-    const prefs = new UserPreferences();
-    const apiService = APIService.getInstance();
-    
-    // 未登录:使用默认偏好
-    if (!apiService.isLoggedIn) {
-      console.info('[RecommendationsPage] 未登录,使用默认偏好');
-      return prefs;
+  private loadMore(): void {
+    if (this.currentTab === TabType.RECOMMENDATION) {
+      if (this.recommendPage <= this.recommendTotalPages && !this.isLoadingRecommend) {
+        this.loadRecommendations(false);
+      }
+    } else if (this.currentTab === TabType.HOT) {
+      if (this.hotPage <= this.hotTotalPages && !this.isLoadingHot) {
+        this.loadHotList(false);
+      }
     }
+  }
+  
+  /**
+   * 切换Tab
+   */
+  private onTabChange(index: number): void {
+    this.selectedTabIndex = index;
+    this.currentTab = index as TabType;
+    
+    // 切换到热榜且未加载数据时，加载数据
+    if (this.currentTab === TabType.HOT && this.hotDataSource.totalCount() === 0) {
+      this.loadHotList(true);
+    }
+  }
+  
+  /**
+   * 下拉刷新 - 推荐Tab
+   */
+  private async onRefreshRecommend(): Promise<void> {
+    console.info('[RecommendationsPage] 推荐Tab下拉刷新开始');
+    this.isRefreshingRecommend = true;
     
     try {
-      // 获取用户点赞和收藏
-      const results = await Promise.all([
-        apiService.fetchUserLikes().catch(() => []),
-        apiService.fetchUserFavorites().catch(() => [])
-      ]);
-      const likesData = results[0];
-      const favsData = results[1];
-      
-      const likes = this.parseRecipes(likesData);
-      const favs = this.parseRecipes(favsData);
-      const all = [...likes, ...favs];
-      
-      if (all.length > 0) {
-        // 计算偏好ABV(平均值)
-        const abvSum = all.reduce((sum, r) => sum + r.estimatedAbv, 0);
-        prefs.preferredAbv = abvSum / all.length;
-        
-        // 统计喜欢的作者(Top 10)
-        const creatorCount: Map<string, number> = new Map();
-        all.forEach(r => {
-          const count = creatorCount.get(r.createdBy) || 0;
-          creatorCount.set(r.createdBy, count + 1);
-        });
-        prefs.favoriteCreators = Array.from(creatorCount.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 10)
-          .map((entry) => entry[0]);
-        
-        // 统计原料偏好:收藏记2分,点赞记1分
-        const ingWeights: Map<string, number> = new Map();
-        likes.forEach(r => {
-          this.extractIngredientNames(r.ingredients).forEach(name => {
-            ingWeights.set(name, (ingWeights.get(name) || 0) + 1);
-          });
-        });
-        favs.forEach(r => {
-          this.extractIngredientNames(r.ingredients).forEach(name => {
-            ingWeights.set(name, (ingWeights.get(name) || 0) + 2);
-          });
-        });
-        prefs.ingredientWeights = ingWeights;
-        
-        console.info(`[RecommendationsPage] 用户偏好: ABV=${prefs.preferredAbv.toFixed(1)}, 原料=${ingWeights.size}种`);
-      }
-    } catch (error) {
-      console.warn('[RecommendationsPage] 构建用户偏好失败:', error);
+      // 重置页码并重新加载第一页
+      await this.loadRecommendations(true);
+    } finally {
+      this.isRefreshingRecommend = false;
+      console.info('[RecommendationsPage] 推荐Tab下拉刷新完成');
     }
-    
-    return prefs;
   }
   
   /**
-   * 评分和排序
+   * 下拉刷新 - 热榜Tab
    */
-  private scoreAndSort(recipes: Recipe[], prefs: UserPreferences): ScoredRec[] {
-    const scored: Array<ScoredItem> = [];
+  private async onRefreshHot(): Promise<void> {
+    console.info('[RecommendationsPage] 热榜Tab下拉刷新开始');
+    this.isRefreshingHot = true;
     
-    recipes.forEach(r => {
-      // ABV评分: 10 - abs(recipe.abv - pref.abv)
-      const abvScore = Math.max(0, 10 - Math.abs(r.estimatedAbv - prefs.preferredAbv));
-      
-      // 受欢迎程度
-      const popularityScore = Math.max(0, r.likeCount);
-      
-      // 随机因子
-      const randomScore = Math.floor(Math.random() * 6); // 0-5
-      
-      // 作者加分
-      const creatorBonus = prefs.favoriteCreators.includes(r.createdBy) ? 15 : 0;
-      
-      // 原料匹配分
-      let ingredientScore = 0;
-      const matchedIngs: string[] = [];
-      if (prefs.ingredientWeights.size > 0) {
-        const recipeIngs = this.extractIngredientNames(r.ingredients);
-        recipeIngs.forEach(ing => {
-          if (prefs.ingredientWeights.has(ing)) {
-            matchedIngs.push(ing);
-          }
-        });
-        ingredientScore = Math.min(4, matchedIngs.length);
-      }
-      
-      // 总分计算
-      const score = abvScore * prefs.abvWeight +
-                    popularityScore * prefs.popularityWeight +
-                    randomScore * prefs.randomWeight +
-                    creatorBonus +
-                    ingredientScore * prefs.ingredientMatchWeight;
-      
-      // 生成推荐理由
-      const reasons: string[] = [];
-      if (matchedIngs.length > 0) {
-        const top3 = matchedIngs.slice(0, 3).join('、');
-        reasons.push(`包含常用原料:${top3}`);
-      }
-      if (abvScore > 6) {
-        reasons.push('酒精度接近你的偏好');
-      }
-      if (creatorBonus > 0) {
-        reasons.push(`你常看调酒师:${r.createdBy}`);
-      }
-      if (popularityScore > 20) {
-        reasons.push('较受欢迎的配方');
-      }
-      if (reasons.length === 0) {
-        reasons.push('为你探索新口味');
-      }
-      
-      const item: ScoredItem = { recipe: r, score: score, reasons: reasons };
-      scored.push(item);
-    });
-    
-    // 排序并转换
-    scored.sort((a, b) => b.score - a.score);
-    const maxScore = scored.length > 0 ? scored[0].score : 1;
-    
-    return scored.map(item => {
-      const pct = Math.min(100, Math.max(1, Math.round((item.score / maxScore) * 100)));
-      const r = item.recipe;
-      const ingredientsStr = this.extractIngredientNames(r.ingredients).join(', ');
-      const result: ScoredRec = {
-        id: r.id,
-        name: r.name,
-        createdBy: r.createdBy,
-        estimatedAbv: r.estimatedAbv,
-        matchPercentage: pct,
-        reasons: item.reasons,
-        likeCount: r.likeCount,
-        favoriteCount: r.favoriteCount,
-        ingredients: ingredientsStr,
-        ingredientDetails: r.ingredients // 保留详细配料信息
-      };
-      return result;
-    });
-  }
-  
-  /**
-   * 解析配方数据
-   */
-  private parseRecipes(data: Array<object>): Recipe[] {
-    console.info(`[RecommendationsPage] 开始解析 ${data.length} 个配方`);
-    
-    return data.map((item: ESObject): Recipe => {
-      // 处理 ingredients - 可能是数组或字符串
-      let ingredients: APIIngredient[] | undefined = undefined;
-      const rawIngredients: ESObject = item['ingredients'];
-      if (rawIngredients && Array.isArray(rawIngredients)) {
-        ingredients = rawIngredients as APIIngredient[];
-        console.info(`[RecommendationsPage] 配方 ${item['name']} 有 ${ingredients.length} 个配料`);
-      } else {
-        console.info(`[RecommendationsPage] 配方 ${item['name']} 没有配料数组, rawIngredients type: ${typeof rawIngredients}`);
-      }
-      
-      return {
-        id: (item['id'] || '') as string,
-        name: (item['name'] || '未命名') as string,
-        createdBy: (item['createdBy'] || item['created_by'] || '未知') as string,
-        instructions: (item['instructions'] || '') as string,
-        estimatedAbv: this.parseNumber(item['estimatedAbv'] || item['estimated_abv']),
-        likeCount: this.parseNumber(item['likeCount'] || item['like_count']),
-        favoriteCount: this.parseNumber(item['favoriteCount'] || item['favorite_count']),
-        ingredients: ingredients
-      };
-    });
-  }
-  
-  /**
-   * 从原料提取原料名称列表
-   * 支持: APIIngredient[] | string | undefined
-   */
-  private extractIngredientNames(ingredients: APIIngredient[] | undefined): string[] {
-    if (!ingredients) return [];
-    
-    // 使用 ESObject 来处理可能的字符串或数组类型
-    const ingsObj: ESObject = ingredients as ESObject;
-    
-    // 如果是字符串,分割处理
-    if (typeof ingsObj === 'string') {
-      const strIngs = ingsObj as string;
-      if (strIngs.length === 0) return [];
-      const parts: string[] = strIngs.split(/[,，、]/);
-      const trimmed: string[] = parts.map((s: string): string => s.trim().toLowerCase());
-      const filtered: string[] = trimmed.filter((s: string): boolean => s.length > 0);
-      const cleaned: string[] = filtered.map((s: string): string => s.replace(/\(.*?\)/g, '').trim());
-      return cleaned;
+    try {
+      // 重置页码并重新加载第一页
+      await this.loadHotList(true);
+    } finally {
+      this.isRefreshingHot = false;
+      console.info('[RecommendationsPage] 热榜Tab下拉刷新完成');
     }
-    
-    // 如果是数组,从APIIngredient提取name
-    if (Array.isArray(ingsObj)) {
-      const arrIngs = ingsObj as APIIngredient[];
-      if (arrIngs.length === 0) return [];
-      const names: string[] = arrIngs.map((ing: APIIngredient): string => ing.name.trim().toLowerCase());
-      const filtered: string[] = names.filter((s: string): boolean => s.length > 0);
-      const cleaned: string[] = filtered.map((s: string): string => s.replace(/\(.*?\)/g, '').trim());
-      return cleaned;
-    }
-    
-    return [];
-  }
-  
-  /**
-   * 安全解析数值
-   */
-  private parseNumber(value: ESObject): number {
-    if (value === null || value === undefined) return 0;
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      const parsed = parseFloat(value as string);
-      return isNaN(parsed) ? 0 : parsed;
-    }
-    const parsed = parseFloat(String(value));
-    return isNaN(parsed) ? 0 : parsed;
   }
   
   /**
    * 跳转到配方详情
    */
-  private navigateToDetail(rec: ScoredRec) {
+  private openRecipeDetail(recipeId: string): void {
     router.pushUrl({
-      url: '@bundle:com.example.cybar/entry/ets/pages/RecipeDetailPage',
-      params: {
-        recipeId: rec.id
-      }
-    }).catch((error: Error) => {
-      console.error('[RecommendationsPage] Navigation failed:', error);
-      promptAction.showToast({ message: '跳转失败' });
+      url: 'pages/RecipeDetailPage',
+      params: { recipeId: recipeId }
     });
   }
   
   build() {
     Column() {
-      // 顶部导航栏
-      Row() {
-        Text('推荐')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-      }
-      .width('100%')
-      .height(56)
-      .padding({ left: 16, right: 16 })
+      // 顶部Tab导航栏
+      this.buildTabBar()
       
-      // 内容区域
-      if (this.hasError) {
-        this.buildErrorState();
-      } else if (this.isLoading) {
-        this.buildLoadingState();
-      } else if (this.recs.length === 0) {
-        this.buildEmptyState();
+      // 内容区域 - 根据当前Tab显示不同内容
+      if (this.currentTab === TabType.RECOMMENDATION) {
+        this.buildRecommendContent()
       } else {
-        this.buildRecommendationsList();
+        this.buildHotContent()
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor('#F6F6F6')
   }
   
   /**
-   * 加载状态
+   * 顶部Tab导航栏
    */
   @Builder
-  buildLoadingState() {
-    Column({ space: 16 }) {
-      LoadingProgress()
-        .width(50)
-        .height(50)
-        .color('#1890ff')
+  buildTabBar() {
+    Column() {
+      // Tab标签行
+      Row() {
+        // 推荐Tab
+        Column() {
+          Text('推荐')
+            .fontSize(this.selectedTabIndex === 0 ? 18 : 16)
+            .fontWeight(this.selectedTabIndex === 0 ? FontWeight.Bold : FontWeight.Normal)
+            .fontColor(this.selectedTabIndex === 0 ? '#1A1A1A' : '#999999')
+            .animation({
+              duration: 200,
+              curve: Curve.EaseInOut
+            })
+          
+          // 底部指示器
+          if (this.selectedTabIndex === 0) {
+            Divider()
+              .width(24)
+              .height(3)
+              .color('#007DFF')
+              .borderRadius(1.5)
+              .margin({ top: 4 })
+          }
+        }
+        .width('50%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => this.onTabChange(0))
+        
+        // 热榜Tab
+        Column() {
+          Text('热榜')
+            .fontSize(this.selectedTabIndex === 1 ? 18 : 16)
+            .fontWeight(this.selectedTabIndex === 1 ? FontWeight.Bold : FontWeight.Normal)
+            .fontColor(this.selectedTabIndex === 1 ? '#1A1A1A' : '#999999')
+            .animation({
+              duration: 200,
+              curve: Curve.EaseInOut
+            })
+          
+          // 底部指示器
+          if (this.selectedTabIndex === 1) {
+            Divider()
+              .width(24)
+              .height(3)
+              .color('#007DFF')
+              .borderRadius(1.5)
+              .margin({ top: 4 })
+          }
+        }
+        .width('50%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => this.onTabChange(1))
+      }
+      .width('100%')
+      .height(50)
       
-      Text('正在生成个性化推荐...')
-        .fontSize(14)
-        .fontColor('#999999')
+      // 分割线
+      Divider()
+        .color('#E8E8E8')
+        .strokeWidth(1)
     }
     .width('100%')
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center)
+    .backgroundColor(Color.White)
   }
   
   /**
-   * 错误状态
+   * 推荐Tab内容
    */
   @Builder
-  buildErrorState() {
-    Column({ space: 16 }) {
-      Text('⚠️')
-        .fontSize(64)
-        .opacity(0.3)
-      
-      Text(this.errorMessage || '加载失败')
-        .fontSize(16)
-        .fontColor('#FF3B30')
-        .textAlign(TextAlign.Center)
-      
-      Button('重试')
-        .fontSize(14)
-        .backgroundColor('#1890ff')
-        .borderRadius(20)
-        .padding({ left: 24, right: 24 })
-        .margin({ top: 16 })
-        .onClick(() => {
-          this.loadRecommendations();
+  buildRecommendContent() {
+    if (this.recommendDataSource.totalCount() === 0 && !this.isLoadingRecommend) {
+      // 显示空状态或提示信息
+      this.buildEmptyState('推荐', this.recommendMessage)
+    } else {
+      Refresh({ refreshing: $$this.isRefreshingRecommend }) {
+        WaterFlow({ footer: () => { this.buildFooter(this.isLoadingRecommend, this.recommendPage > this.recommendTotalPages) } }) {
+          LazyForEach(this.recommendDataSource, (recipe: RecommendedRecipe, index: number) => {
+            FlowItem() {
+              RecommendedRecipeCard({
+                recipe: recipe,
+                cardRatio: this.getCardRatio(index),
+                showMatchPercentage: this.showMatchPercentage,
+                showRecommendReason: this.showRecommendReason,
+                onTap: () => { this.openRecipeDetail(recipe.id) }
+              })
+            }
+            .width('100%')
+          }, (recipe: RecommendedRecipe, index: number) => `${this.recommendDataVersion}_${recipe.id}_${index}`)
+        }
+        .columnsTemplate('1fr 1fr')
+        .columnsGap(10)
+        .rowsGap(10)
+        .padding({ left: 10, right: 10, top: 10, bottom: 10 })
+        .width('100%')
+        .layoutWeight(1)
+        .onReachEnd(() => {
+          this.loadMore();
         })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .onRefreshing(async () => {
+        await this.onRefreshRecommend();
+      })
     }
-    .width('100%')
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center)
-    .padding(32)
+  }
+  
+  /**
+   * 热榜Tab内容
+   */
+  @Builder
+  buildHotContent() {
+    if (this.hotDataSource.totalCount() === 0 && !this.isLoadingHot) {
+      this.buildEmptyState('热榜')
+    } else {
+      Refresh({ refreshing: $$this.isRefreshingHot }) {
+        WaterFlow({ footer: () => { this.buildFooter(this.isLoadingHot, this.hotPage > this.hotTotalPages) } }) {
+          LazyForEach(this.hotDataSource, (recipe: Recipe, index: number) => {
+            FlowItem() {
+              RecipeWaterfallCard({
+                recipe: recipe,
+                cardRatio: this.getCardRatio(index),
+                showRank: true,
+                rank: index + 1,
+                onTap: () => { this.openRecipeDetail(recipe.id) }
+              })
+            }
+            .width('100%')
+          }, (recipe: Recipe, index: number) => `${this.hotDataVersion}_${recipe.id}_${index}`)
+        }
+        .columnsTemplate('1fr 1fr')
+        .columnsGap(10)
+        .rowsGap(10)
+        .padding({ left: 10, right: 10, top: 10, bottom: 10 })
+        .width('100%')
+        .layoutWeight(1)
+        .onReachEnd(() => {
+          this.loadMore();
+        })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .onRefreshing(async () => {
+        await this.onRefreshHot();
+      })
+    }
   }
   
   /**
    * 空状态
    */
   @Builder
-  buildEmptyState() {
+  buildEmptyState(tabName: string, message?: string) {
     Column({ space: 16 }) {
       Text('✨')
         .fontSize(64)
         .opacity(0.3)
       
-      Text('暂无推荐')
+      Text(message || `暂无${tabName}内容`)
         .fontSize(16)
         .fontColor('#999999')
         .textAlign(TextAlign.Center)
-      
-      Text('去点赞/收藏一些配方试试')
-        .fontSize(14)
-        .fontColor('#CCCCCC')
-        .textAlign(TextAlign.Center)
-        .margin({ top: 8 })
+        .padding({ left: 20, right: 20 })
       
       Button('刷新')
         .fontSize(14)
-        .backgroundColor('#1890ff')
+        .backgroundColor('#007DFF')
         .borderRadius(20)
-        .padding({ left: 24, right: 24 })
+        .padding({ left: 24, right: 24, top: 8, bottom: 8 })
         .margin({ top: 16 })
         .onClick(() => {
-          this.loadRecommendations();
+          if (this.currentTab === TabType.RECOMMENDATION) {
+            this.loadRecommendations(true);
+          } else {
+            this.loadHotList(true);
+          }
         })
     }
     .width('100%')
@@ -514,289 +544,299 @@ export struct RecommendationsPage {
   }
   
   /**
-   * 推荐列表
+   * 底部加载状态
    */
   @Builder
-  buildRecommendationsList() {
-    Refresh({ refreshing: $$this.isRefreshing }) {
-      Scroll() {
-        Column({ space: 12 }) {
-          ForEach(this.recs, (rec: ScoredRec) => {
-            this.buildRecommendationCard(rec)
-          }, (rec: ScoredRec) => rec.id)
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+  buildFooter(isLoading: boolean, isEnd: boolean): void {
+    Row() {
+      if (isLoading) {
+        LoadingProgress().width(20).height(20).margin({ right: 8 })
+        Text('加载中...').fontSize(14).fontColor('#999999')
+      } else if (isEnd) {
+        Text('没有更多了').fontSize(14).fontColor('#999999')
       }
-      .width('100%')
-      .scrollBar(BarState.Auto)
-      .edgeEffect(EdgeEffect.Spring)
     }
-    .layoutWeight(1)
     .width('100%')
-    .onRefreshing(async () => {
-      await this.refreshRecommendations();
-    })
+    .height(50)
+    .justifyContent(FlexAlign.Center)
   }
   
   /**
-   * 推荐卡片 - 单行布局
+   * 获取卡片比例 (3:4 和 1:1 混合)
    */
-  @Builder
-  buildRecommendationCard(rec: ScoredRec) {
-    RecommendationCardComponent({ rec: rec })
+  private getCardRatio(index: number): number {
+    // 每4个卡片中，前2个使用3:4，后2个使用1:1
+    const pattern = index % 4;
+    return (pattern === 0 || pattern === 1) ? 0.75 : 1.0; // 3:4 = 0.75, 1:1 = 1.0
   }
 }
 
 /**
- * 推荐卡片组件 - 独立状态管理
+ * 推荐卡片组件 - 带匹配度和推荐理由
  */
 @Component
-struct RecommendationCardComponent {
-  @Prop rec: ScoredRec;
-  @State displayIngredients: APIIngredient[] = [];
-  @State isFetchingDetails: boolean = false;
-  
-  aboutToAppear() {
-    // 尝试使用已有的配料数据
-    if (this.rec.ingredientDetails && this.rec.ingredientDetails.length > 0) {
-      this.displayIngredients = this.rec.ingredientDetails;
-      console.info(`[RecommendationCard] 使用已有配料数据: ${this.rec.name}, ${this.displayIngredients.length}个配料`);
-    } else {
-      // 懒加载配料详情
-      console.info(`[RecommendationCard] 懒加载配料详情: ${this.rec.name}`);
-      this.fetchIngredientDetails();
-    }
-  }
-  
-  private async fetchIngredientDetails() {
-    if (this.isFetchingDetails) return;
-    
-    this.isFetchingDetails = true;
-    try {
-      const apiService = APIService.getInstance();
-      const detail = await apiService.fetchRecipeDetail(this.rec.id);
-      
-      if (detail && detail['ingredients']) {
-        const rawIngs: ESObject = detail['ingredients'];
-        if (Array.isArray(rawIngs)) {
-          this.displayIngredients = rawIngs as APIIngredient[];
-          console.info(`[RecommendationCard] 获取到配料详情: ${this.displayIngredients.length}个`);
-        }
-      }
-    } catch (error) {
-      console.error(`[RecommendationCard] 获取配料详情失败:`, error);
-    } finally {
-      this.isFetchingDetails = false;
-    }
-  }
-  
-  private navigateToDetail() {
-    router.pushUrl({
-      url: '@bundle:com.example.cybar/entry/ets/pages/RecipeDetailPage',
-      params: {
-        recipeId: this.rec.id
-      }
-    }).catch((error: Error) => {
-      console.error('[RecommendationCard] Navigation failed:', error);
-      promptAction.showToast({ message: '跳转失败' });
-    });
-  }
+struct RecommendedRecipeCard {
+  @Prop recipe: RecommendedRecipe;
+  @Prop cardRatio: number = 0.75; // 默认3:4比例
+  @Prop showMatchPercentage: boolean = true; // 是否显示匹配度标签
+  @Prop showRecommendReason: boolean = true; // 是否显示推荐理由
+  onTap?: () => void;
   
   build() {
-    Column({ space: 12 }) {
-      // 顶部区域:匹配圆圈 + 基本信息
-      Row({ space: 16 }) {
-        // 左侧:匹配度圆环
-        this.buildMatchCircle(this.rec.matchPercentage)
-        
-        // 右侧:配方信息
-        Column({ space: 6 }) {
-          // 配方名称
-          Text(this.rec.name)
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#1A1A1A')
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          
-          // 创建者和ABV
-          Row({ space: 12 }) {
-            Text(`👤 ${this.rec.createdBy}`)
-              .fontSize(13)
-              .fontColor('#666666')
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .layoutWeight(1)
-            
-            Text(`${this.rec.estimatedAbv.toFixed(1)}% ABV`)
-              .fontSize(12)
-              .fontColor('#1890ff')
-              .fontWeight(FontWeight.Medium)
-              .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-              .backgroundColor('rgba(24, 144, 255, 0.12)')
-              .borderRadius(10)
-          }
+    Column() {
+      // 图片区域
+      Stack({ alignContent: Alignment.TopEnd }) {
+        Image($r('app.media.wine'))
           .width('100%')
-          
-          // 互动数据
-          Row({ space: 16 }) {
-            Text(`❤️ ${this.rec.likeCount}`)
+          .aspectRatio(this.cardRatio) // 动态宽高比
+          .objectFit(ImageFit.Cover)
+          .borderRadius({ topLeft: 8, topRight: 8 })
+        
+        // 匹配度标签（右上角）
+        if (this.showMatchPercentage && this.recipe.matchPercentage > 0) {
+          Row({ space: 2 }) {
+            Text(`${this.recipe.matchPercentage}%`)
               .fontSize(12)
-              .fontColor('#999999')
-            
-            Text(`⭐ ${this.rec.favoriteCount}`)
-              .fontSize(12)
-              .fontColor('#999999')
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.White)
+            Text('匹配')
+              .fontSize(10)
+              .fontColor(Color.White)
           }
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .backgroundColor(this.getMatchColor(this.recipe.matchPercentage))
+          .borderRadius({ topRight: 8, bottomLeft: 8 })
         }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
       }
       .width('100%')
-      .alignItems(VerticalAlign.Top)
       
-      // 推荐理由
-      if (this.rec.reasons.length > 0) {
-        Column({ space: 6 }) {
-          ForEach(this.rec.reasons, (reason: string) => {
-            Row({ space: 8 }) {
-              Text('✓')
-                .fontSize(13)
-                .fontColor('#52c41a')
-                .fontWeight(FontWeight.Bold)
-              
-              Text(reason)
-                .fontSize(13)
-                .fontColor('#666666')
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .layoutWeight(1)
-            }
-            .width('100%')
-          }, (reason: string) => reason)
-        }
-        .width('100%')
-        .padding({ top: 4 })
-      }
-      
-      Divider()
-        .color('#E8E8E8')
-        .strokeWidth(1)
-      
-      // 详细配料信息
-      Column({ space: 8 }) {
-        Text('配料详情')
+      // 内容区域
+      Column() {
+        // 标题
+        Text(this.recipe.name)
           .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#333333')
-        
-        if (this.isFetchingDetails) {
-          // 加载中状态
-          Row({ space: 8 }) {
-            LoadingProgress()
-              .width(16)
-              .height(16)
-              .color('#1890ff')
-            Text('加载配料信息...')
-              .fontSize(12)
-              .fontColor('#999999')
-          }
-          .padding(12)
-        } else if (this.displayIngredients.length > 0) {
-          Column({ space: 6 }) {
-            ForEach(this.displayIngredients, (ing: APIIngredient) => {
-              Row({ space: 10 }) {
-                // 配料名称
-                Text(ing.name)
-                  .fontSize(13)
-                  .fontColor('#333333')
-                  .layoutWeight(1)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                
-                // 用量和ABV
-                Row({ space: 8 }) {
-                  Text(`${ing.volume}ml`)
-                    .fontSize(12)
-                    .fontColor('#666666')
-                    .fontWeight(FontWeight.Medium)
-                  
-                  if (ing.abv > 0) {
-                    Text(`${ing.abv}%`)
-                      .fontSize(11)
-                      .fontColor('#999999')
-                      .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                      .backgroundColor('#F5F5F5')
-                      .borderRadius(6)
-                  }
-                }
-              }
-              .width('100%')
-              .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-              .backgroundColor('#FAFAFA')
-              .borderRadius(8)
-            }, (ing: APIIngredient) => ing.id || ing.name)
-          }
+          .fontWeight(FontWeight.Bold)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontColor('#333')
           .width('100%')
-        } else {
-          Text(this.rec.ingredients || '暂无配料信息')
-            .fontSize(13)
-            .fontColor('#999999')
-            .padding(8)
+          .textAlign(TextAlign.Start)
+        
+        // 推荐理由（酒品名称下方）
+        if (this.showRecommendReason && this.recipe.reason) {
+          Text(this.recipe.reason)
+            .fontSize(10)
+            .fontColor('#666')
+            .width('100%')
+            .margin({ top: 4 })
+            .lineHeight(14)
         }
+        
+        // ABV标签和点赞数（同一行）
+        Row({ space: 8 }) {
+          // ABV标签
+          if (this.recipe.estimatedAbv !== undefined && this.recipe.estimatedAbv !== null) {
+            Text(`${Math.round(Number(this.recipe.estimatedAbv))}%`)
+              .fontSize(13)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#FF6B00')
+              .backgroundColor('#FFF0E0')
+              .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+              .borderRadius(4)
+              .flexShrink(0)
+          }
+          
+          Blank()
+          
+          // 点赞数（右下角）
+          Row({ space: 2 }) {
+            Text('🤍')
+              .fontSize(12)
+            Text(`${this.recipe.likeCount || 0}`)
+              .fontSize(12)
+              .fontColor('#666')
+          }
+          .flexShrink(0)
+        }
+        .margin({ top: 6 })
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .justifyContent(FlexAlign.SpaceBetween)
       }
-      .width('100%')
+      .padding(8)
+      .backgroundColor(Color.White)
+      .borderRadius({ bottomLeft: 8, bottomRight: 8 })
       .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
-    .padding(16)
+    .borderRadius(8)
     .backgroundColor(Color.White)
-    .borderRadius(16)
-    .shadow({
-      radius: 12,
-      color: '#00000015',
-      offsetX: 0,
-      offsetY: 4
-    })
+    .shadow({ radius: 4, color: '#1A000000', offsetY: 2 })
     .onClick(() => {
-      this.navigateToDetail();
+      if (this.onTap) this.onTap();
     })
   }
   
   /**
-   * 匹配度圆圈 - 真实进度环
+   * 获取匹配度颜色
    */
-  @Builder
-  buildMatchCircle(percentage: number) {
-    Stack() {
-      // 使用 Progress 组件显示真实进度
-      Progress({
-        value: percentage,
-        total: 100,
-        type: ProgressType.Ring
-      })
-        .width(60)
-        .height(60)
-        .color('#52c41a')
-        .backgroundColor('#F0F0F0')
-        .style({
-          strokeWidth: 6
-        })
+  private getMatchColor(percentage: number): string {
+    if (percentage >= 80) {
+      return '#4CAF50'; // 绿色 - 高匹配
+    } else if (percentage >= 60) {
+      return '#FF9800'; // 橙色 - 中等匹配
+    } else {
+      return '#9E9E9E'; // 灰色 - 低匹配
+    }
+  }
+}
+
+/**
+ * 瀑布流卡片组件 - 参考RecipesPage的RecipeCard
+ */
+@Component
+struct RecipeWaterfallCard {
+  @Prop recipe: Recipe;
+  @Prop cardRatio: number = 0.75; // 默认3:4比例
+  @Prop showRank: boolean = false; // 是否显示排名
+  @Prop rank: number = 0; // 排名数字
+  onTap?: () => void;
+  
+  build() {
+    Column() {
+      // 图片区域
+      Stack({ alignContent: Alignment.TopStart }) {
+        Image($r('app.media.wine'))
+          .width('100%')
+          .aspectRatio(this.cardRatio) // 动态宽高比
+          .objectFit(ImageFit.Cover)
+          .borderRadius({ topLeft: 8, topRight: 8 })
+        
+        // 热榜排名标签
+        if (this.showRank && this.rank > 0 && this.rank <= 3) {
+          Row() {
+            Text(`${this.rank}`)
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.White)
+          }
+          .width(32)
+          .height(32)
+          .justifyContent(FlexAlign.Center)
+          .backgroundColor(this.getRankColor(this.rank))
+          .borderRadius({ topLeft: 8, bottomRight: 8 })
+        } else if (this.showRank && this.rank > 0) {
+          Row() {
+            Text(`${this.rank}`)
+              .fontSize(12)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.White)
+          }
+          .padding({ left: 6, right: 6, top: 3, bottom: 3 })
+          .backgroundColor('rgba(0, 0, 0, 0.5)')
+          .borderRadius({ topLeft: 8, bottomRight: 8 })
+        }
+      }
+      .width('100%')
       
-      // 中心文字
-      Column({ space: 2 }) {
-        Text(`${percentage}%`)
+      // 内容区域
+      Column() {
+        // 标题
+        Text(this.recipe.name)
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#1A1A1A')
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontColor('#333')
+          .width('100%')
+          .textAlign(TextAlign.Start)
         
-        Text('匹配')
-          .fontSize(10)
-          .fontColor('#999999')
+        // ABV标签和配料预览
+        Row({ space: 4 }) {
+          Text(`${this.recipe.estimatedAbv.toFixed(0)}%`)
+            .fontSize(13)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FF6B00')
+            .backgroundColor('#FFF0E0')
+            .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+            .borderRadius(4)
+            .flexShrink(0)
+          
+          // 配料预览
+          if (this.recipe.ingredients && typeof this.recipe.ingredients === 'string') {
+            Text(this.recipe.ingredients.split(',').slice(0, 3).join(' '))
+              .fontSize(10)
+              .fontColor('#999')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+          }
+        }
+        .margin({ top: 6 })
+        .width('100%')
+        
+        // 底部信息
+        Row() {
+          // 创建者
+          Row({ space: 4 }) {
+            Image($r('app.media.startIcon'))
+              .width(16)
+              .height(16)
+              .borderRadius(8)
+              .flexShrink(0)
+            
+            Text(this.recipe.createdBy)
+              .fontSize(10)
+              .fontColor('#666')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .layoutWeight(1)
+          .alignItems(VerticalAlign.Center)
+          
+          // 点赞数
+          Row({ space: 2 }) {
+            Text(this.recipe.isLiked ? '❤️' : '🤍')
+              .fontSize(12)
+            Text(`${this.recipe.likeCount}`)
+              .fontSize(12)
+              .fontColor('#666')
+          }
+          .flexShrink(0)
+          .margin({ left: 4 })
+        }
+        .margin({ top: 8 })
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .justifyContent(FlexAlign.SpaceBetween)
       }
+      .padding(8)
+      .backgroundColor(Color.White)
+      .borderRadius({ bottomLeft: 8, bottomRight: 8 })
+      .alignItems(HorizontalAlign.Start)
     }
-    .width(60)
-    .height(60)
+    .width('100%')
+    .borderRadius(8)
+    .backgroundColor(Color.White)
+    .shadow({ radius: 4, color: '#1A000000', offsetY: 2 })
+    .onClick(() => {
+      if (this.onTap) this.onTap();
+    })
+  }
+  
+  /**
+   * 获取排名颜色
+   */
+  private getRankColor(rank: number): string {
+    switch (rank) {
+      case 1:
+        return '#FFD700'; // 金色
+      case 2:
+        return '#C0C0C0'; // 银色
+      case 3:
+        return '#CD7F32'; // 铜色
+      default:
+        return 'rgba(0, 0, 0, 0.5)';
+    }
   }
 }
