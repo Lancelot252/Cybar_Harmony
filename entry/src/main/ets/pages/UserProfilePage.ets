@@ -29,6 +29,10 @@ class RecipeDataSource implements IDataSource {
     return this.dataArray[index];
   }
 
+  public getAllData(): Recipe[] {
+    return this.dataArray;
+  }
+
   public registerDataChangeListener(listener: DataChangeListener): void {
     if (this.listeners.indexOf(listener) < 0) {
       this.listeners.push(listener);
@@ -72,6 +76,12 @@ export struct UserProfilePage {
   @State showLogin: boolean = false;
   @State showRegister: boolean = false;
   
+  // 编辑资料相关状态
+  @State showEditProfile: boolean = false;
+  @State editNickname: string = '';
+  @State editBio: string = '';
+  @State isSavingProfile: boolean = false;
+  
   // Tab 相关状态
   @State currentTab: ProfileTab = ProfileTab.RECIPES;
   
@@ -92,6 +102,11 @@ export struct UserProfilePage {
   @State favoritesError: string = '';
   @State myRecipesError: string = '';
   @State loginStatusDebug: string = '';
+  
+  // 懒加载标志 - 标记数据是否已加载过
+  private hasLoadedRecipes: boolean = false;
+  private hasLoadedLikes: boolean = false;
+  private hasLoadedFavorites: boolean = false;
   
   // 获取当前主题色
   private getColors(): ThemeColors {
@@ -143,23 +158,40 @@ export struct UserProfilePage {
   }
   
   // 刷新所有数据
-  private refreshAll() {
-    this.totalLikesReceived = 0;
-    this.loadMyRecipes();
-    this.loadFavorites();
-    this.loadLikes();
+  private refreshAll(force: boolean = false) {
+    if (force) {
+      // 强制刷新时重置标志
+      this.hasLoadedRecipes = false;
+      this.hasLoadedLikes = false;
+      this.hasLoadedFavorites = false;
+      this.totalLikesReceived = 0;
+    }
+    
+    // 只加载未加载过的数据
+    if (!this.hasLoadedRecipes) {
+      this.loadMyRecipes();
+    }
+    if (!this.hasLoadedFavorites) {
+      this.loadFavorites();
+    }
+    if (!this.hasLoadedLikes) {
+      this.loadLikes();
+    }
   }
   
   // 刷新当前 Tab 数据
-  private async refreshCurrentTab(): Promise<void> {
+  private async refreshCurrentTab(force: boolean = false): Promise<void> {
     switch (this.currentTab) {
       case ProfileTab.RECIPES:
+        if (force) this.hasLoadedRecipes = false;
         await this.loadMyRecipes();
         break;
       case ProfileTab.LIKES:
+        if (force) this.hasLoadedLikes = false;
         await this.loadLikes();
         break;
       case ProfileTab.FAVORITES:
+        if (force) this.hasLoadedFavorites = false;
         await this.loadFavorites();
         break;
     }
@@ -167,6 +199,11 @@ export struct UserProfilePage {
   
   // 清空数据
   private clearData() {
+    // 重置懒加载标志
+    this.hasLoadedRecipes = false;
+    this.hasLoadedLikes = false;
+    this.hasLoadedFavorites = false;
+    
     this.favoritesCount = 0;
     this.myRecipesCount = 0;
     this.likesCount = 0;
@@ -210,11 +247,26 @@ export struct UserProfilePage {
     this.favoritesError = '';
     
     try {
-      const favorites = await APIService.getInstance().fetchUserFavorites();
-      if (Array.isArray(favorites)) {
+      const apiService = APIService.getInstance();
+      const favorites = await apiService.fetchUserFavorites();
+      if (Array.isArray(favorites) && favorites.length > 0) {
         this.favoritesCount = favorites.length;
-        const recipes = favorites.map((item: ESObject) => this.parseRecipe(item));
-        this.favoritesDataSource.setData(recipes);
+        
+        // 获取每个配方的详细信息
+        const detailedRecipes: Recipe[] = [];
+        for (const item of favorites) {
+          try {
+            const recipeId = (item['id'] || '') as string;
+            if (recipeId) {
+              const detail = await apiService.fetchRecipeDetail(recipeId);
+              detailedRecipes.push(this.parseRecipe(detail as ESObject));
+            }
+          } catch (e) {
+            // 如果获取详情失败，使用预览数据
+            detailedRecipes.push(this.parseRecipe(item as ESObject));
+          }
+        }
+        this.favoritesDataSource.setData(detailedRecipes);
       } else {
         this.favoritesCount = 0;
         this.favoritesDataSource.clear();
@@ -224,6 +276,7 @@ export struct UserProfilePage {
       this.favoritesDataSource.clear();
     } finally {
       this.loadingFavorites = false;
+      this.hasLoadedFavorites = true;
     }
   }
   
@@ -232,11 +285,26 @@ export struct UserProfilePage {
     this.isLoading = true;
     
     try {
-      const likes = await APIService.getInstance().fetchUserLikes();
-      if (Array.isArray(likes)) {
+      const apiService = APIService.getInstance();
+      const likes = await apiService.fetchUserLikes();
+      if (Array.isArray(likes) && likes.length > 0) {
         this.likesCount = likes.length;
-        const recipes = likes.map((item: ESObject) => this.parseRecipe(item));
-        this.likesDataSource.setData(recipes);
+        
+        // 获取每个配方的详细信息
+        const detailedRecipes: Recipe[] = [];
+        for (const item of likes) {
+          try {
+            const recipeId = (item['id'] || '') as string;
+            if (recipeId) {
+              const detail = await apiService.fetchRecipeDetail(recipeId);
+              detailedRecipes.push(this.parseRecipe(detail as ESObject));
+            }
+          } catch (e) {
+            // 如果获取详情失败，使用预览数据
+            detailedRecipes.push(this.parseRecipe(item as ESObject));
+          }
+        }
+        this.likesDataSource.setData(detailedRecipes);
       } else {
         this.likesCount = 0;
         this.likesDataSource.clear();
@@ -246,6 +314,7 @@ export struct UserProfilePage {
       this.likesDataSource.clear();
     } finally {
       this.isLoading = false;
+      this.hasLoadedLikes = true;
     }
   }
   
@@ -260,23 +329,33 @@ export struct UserProfilePage {
       
       if (Array.isArray(recipes) && recipes.length > 0) {
         this.myRecipesCount = recipes.length;
-        const parsedRecipes = recipes.map((item: ESObject) => this.parseRecipe(item));
-        this.recipesDataSource.setData(parsedRecipes);
         
-        // 计算总获赞数
-        const initialLikes = recipes.reduce((sum: number, recipe: ESObject) => {
-          const recipe_detail:ESObject = apiService.fetchRecipeDetail(recipe.id);
-          const likeCount = this.parseNumber(recipe_detail['likeCount']);
-          return sum + likeCount;
-        }, 0);
+        // 获取每个配方的详细信息并计算总获赞与收藏
+        const detailedRecipes: Recipe[] = [];
+        let totalLikes = 0;
+        let totalFavorites = 0;
         
-        // 计算总收藏数
-        const totalFavorites = recipes.reduce((sum: number, recipe: ESObject) => {
-          const favoriteCount = this.parseNumber(recipe['favoriteCount'] || recipe['favorite_count']);
-          return sum + favoriteCount;
-        }, 0);
+        for (const item of recipes) {
+          try {
+            const recipeId = (item['id'] || '') as string;
+            if (recipeId) {
+              const detail = await apiService.fetchRecipeDetail(recipeId);
+              const parsedRecipe = this.parseRecipe(detail as ESObject);
+              detailedRecipes.push(parsedRecipe);
+              totalLikes += parsedRecipe.likeCount;
+              totalFavorites += parsedRecipe.favoriteCount;
+            }
+          } catch (e) {
+            // 如果获取详情失败，使用预览数据
+            const parsedRecipe = this.parseRecipe(item as ESObject);
+            detailedRecipes.push(parsedRecipe);
+            totalLikes += parsedRecipe.likeCount;
+            totalFavorites += parsedRecipe.favoriteCount;
+          }
+        }
         
-        this.totalLikesReceived = initialLikes + totalFavorites;
+        this.recipesDataSource.setData(detailedRecipes);
+        this.totalLikesReceived = totalLikes + totalFavorites;
       } else {
         this.myRecipesCount = 0;
         this.totalLikesReceived = 0;
@@ -288,6 +367,7 @@ export struct UserProfilePage {
       this.recipesDataSource.clear();
     } finally {
       this.loadingMyRecipes = false;
+      this.hasLoadedRecipes = true;
     }
   }
   
@@ -319,12 +399,11 @@ export struct UserProfilePage {
     APIService.getInstance().removeListener(this.stateChangeListener);
   }
   
-  // 每次页面显示时刷新数据（从其他页面返回时也会触发）
+  // 每次页面显示时检查登录状态（不再自动刷新数据）
   onPageShow() {
     console.info('[UserProfilePage] onPageShow triggered');
-    if (this.isLoggedIn) {
-      this.refreshAll();
-    }
+    // 只更新登录状态，不重新加载数据（懒加载）
+    this.updateFromAPIService();
   }
   
   build() {
@@ -380,6 +459,11 @@ export struct UserProfilePage {
         .backgroundColor(this.getColors().cardBackground)
         .transition({ type: TransitionType.Insert, opacity: 0, translate: { y: 1000 } })
         .transition({ type: TransitionType.Delete, opacity: 0, translate: { y: 1000 } })
+      }
+      
+      // 编辑资料弹窗
+      if (this.showEditProfile) {
+        this.buildEditProfileSheet()
       }
     }
     .width('100%')
@@ -455,52 +539,78 @@ export struct UserProfilePage {
   // 已登录视图 - 小红书风格
   @Builder
   buildLoggedInView() {
-    Column() {
-      // 顶部工具栏
-      Row() {
-        Blank()
-        
-        Row({ space: 16 }) {
-          // 设置按钮
-          SymbolGlyph($r('sys.symbol.gearshape'))
-            .fontSize(24)
-            .fontColor([this.getColors().textPrimary])
-            .onClick(() => {
-              router.pushUrl({
-                url: '@bundle:com.example.cybar/entry/ets/pages/SettingsPage'
-              }).catch((error: Error) => {
-                console.error('[UserProfilePage] 跳转设置页面失败:', error);
-              });
-            })
-        }
-      }
-      .width('100%')
-      .height(44)
-      .padding({ left: 16, right: 16 })
+    Stack() {
+      // 顶部背景图片
+      Image($r('app.media.profile_default_background'))
+        .width('100%')
+        .height(200)
+        .objectFit(ImageFit.Cover)
+        .position({ x: 0, y: 0 })
       
-      // 主体内容 - 下拉刷新
-      Refresh({ refreshing: $$this.isRefreshing }) {
-        Scroll() {
-          Column() {
-            // 用户信息区域
-            this.buildUserInfoSection()
-            
-            // Tab 切换栏
-            this.buildTabBar()
-            
-            // 内容列表
-            this.buildContentList()
+      // 背景渐变遮罩
+      Column()
+        .width('100%')
+        .height(200)
+        .linearGradient({
+          direction: GradientDirection.Bottom,
+          colors: [
+            ['rgba(0, 0, 0, 0)', 0],
+            [this.getColors().background as string, 1]
+          ]
+        })
+        .position({ x: 0, y: 0 })
+      
+      // 主体内容
+      Column() {
+        // 顶部工具栏
+        Row() {
+          Blank()
+          
+          Row({ space: 16 }) {
+            // 设置按钮
+            SymbolGlyph($r('sys.symbol.gearshape'))
+              .fontSize(24)
+              .fontColor([Color.White])
+              .onClick(() => {
+                router.pushUrl({
+                  url: '@bundle:com.example.cybar/entry/ets/pages/SettingsPage'
+                }).catch((error: Error) => {
+                  console.error('[UserProfilePage] 跳转设置页面失败:', error);
+                });
+              })
           }
-          .width('100%')
         }
-        .scrollBar(BarState.Off)
+        .width('100%')
+        .height(44)
+        .padding({ left: 16, right: 16 })
+        
+        // 主体内容 - 下拉刷新
+        Refresh({ refreshing: $$this.isRefreshing }) {
+          Scroll() {
+            Column() {
+              // 用户信息区域
+              this.buildUserInfoSection()
+              
+              // Tab 切换栏
+              this.buildTabBar()
+              
+              // 内容列表
+              this.buildContentList()
+            }
+            .width('100%')
+          }
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
+        }
+        .onRefreshing(async () => {
+          // 下拉刷新时强制重新加载当前 Tab 数据
+          await this.refreshCurrentTab(true);
+          this.isRefreshing = false;
+        })
         .layoutWeight(1)
       }
-      .onRefreshing(async () => {
-        await this.refreshCurrentTab();
-        this.isRefreshing = false;
-      })
-      .layoutWeight(1)
+      .width('100%')
+      .height('100%')
     }
     .width('100%')
     .height('100%')
@@ -595,7 +705,9 @@ export struct UserProfilePage {
           .height(32)
           .padding({ left: 16, right: 16 })
           .onClick(() => {
-            promptAction.showToast({ message: '编辑资料功能开发中...' });
+            this.editNickname = this.userName;
+            this.editBio = this.userBio === '点击这里，填写简介' ? '' : this.userBio;
+            this.showEditProfile = true;
           })
         
         // 设置按钮
@@ -681,7 +793,7 @@ export struct UserProfilePage {
         Divider()
           .width(24)
           .strokeWidth(2)
-          .color('#FF2442')
+          .color('#007DFF')
           .margin({ top: 8 })
       }
     }
@@ -753,20 +865,18 @@ export struct UserProfilePage {
       .height(250)
       .justifyContent(FlexAlign.Center)
     } else {
-      // 瀑布流网格
-      WaterFlow() {
-        LazyForEach(dataSource, (recipe: Recipe) => {
-          FlowItem() {
+      // 使用 Grid 布局替代 WaterFlow，避免嵌套滚动问题
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+        ForEach(dataSource.getAllData(), (recipe: Recipe) => {
+          Column() {
             this.buildRecipeCard(recipe)
           }
+          .width('48%')
+          .margin({ bottom: 12 })
         }, (recipe: Recipe) => recipe.id)
       }
-      .columnsTemplate('1fr 1fr')
-      .columnsGap(8)
-      .rowsGap(8)
-      .padding({ left: 8, right: 8, top: 8, bottom: 16 })
+      .padding({ left: 12, right: 12, top: 12, bottom: 80 })
       .width('100%')
-      .layoutWeight(1)
     }
   }
   
@@ -810,7 +920,7 @@ export struct UserProfilePage {
           Row({ space: 2 }) {
             SymbolGlyph($r('sys.symbol.heart_fill'))
               .fontSize(12)
-              .fontColor(['#FF2442'])
+              .fontColor(['#ffff0000'])
             
             Text(`${recipe.likeCount}`)
               .fontSize(11)
@@ -844,6 +954,223 @@ export struct UserProfilePage {
         console.error('[UserProfilePage] 跳转配方详情失败:', error);
       });
     })
+  }
+  
+  // 编辑资料弹窗
+  @Builder
+  buildEditProfileSheet() {
+    Column() {
+      // 半透明背景遮罩
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0, 0, 0, 0.5)')
+        .onClick(() => {
+          if (!this.isSavingProfile) {
+            this.showEditProfile = false;
+          }
+        })
+      
+      // 底部弹出面板
+      Column() {
+        // 顶部拖动条
+        Row() {
+          Column()
+            .width(40)
+            .height(4)
+            .backgroundColor(this.getColors().divider)
+            .borderRadius(2)
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+        .padding({ top: 12, bottom: 16 })
+        
+        // 标题栏
+        Row() {
+          Text('取消')
+            .fontSize(16)
+            .fontColor(this.getColors().textSecondary)
+            .onClick(() => {
+              if (!this.isSavingProfile) {
+                this.showEditProfile = false;
+              }
+            })
+          
+          Blank()
+          
+          Text('编辑资料')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.getColors().textPrimary)
+          
+          Blank()
+          
+          if (this.isSavingProfile) {
+            LoadingProgress()
+              .width(20)
+              .height(20)
+              .color('#007DFF')
+          } else {
+            Text('保存')
+              .fontSize(16)
+              .fontColor('#007DFF')
+              .fontWeight(FontWeight.Medium)
+              .onClick(() => {
+                this.saveProfile();
+              })
+          }
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, bottom: 20 })
+        
+        // 头像区域
+        Column({ space: 8 }) {
+          Stack() {
+            SymbolGlyph($r('sys.symbol.person_crop_circle_fill'))
+              .fontSize(80)
+              .fontColor([this.getColors().textTertiary])
+            
+            // 编辑图标
+            Column() {
+              SymbolGlyph($r('sys.symbol.camera_fill'))
+                .fontSize(14)
+                .fontColor([Color.White])
+            }
+            .width(28)
+            .height(28)
+            .backgroundColor('rgba(0, 0, 0, 0.6)')
+            .borderRadius(14)
+            .justifyContent(FlexAlign.Center)
+            .position({ x: 52, y: 52 })
+          }
+          .width(80)
+          .height(80)
+          
+          Text('点击更换头像')
+            .fontSize(13)
+            .fontColor(this.getColors().textTertiary)
+        }
+        .width('100%')
+        .padding({ bottom: 24 })
+        .onClick(() => {
+          promptAction.showToast({ message: '头像功能开发中...' });
+        })
+        
+        // 表单区域
+        Column({ space: 0 }) {
+          // 昵称输入
+          Row() {
+            Text('昵称')
+              .fontSize(15)
+              .fontColor(this.getColors().textPrimary)
+              .width(70)
+            
+            TextInput({ text: this.editNickname, placeholder: '请输入昵称' })
+              .fontSize(15)
+              .fontColor(this.getColors().textPrimary)
+              .placeholderColor(this.getColors().textTertiary)
+              .backgroundColor(Color.Transparent)
+              .layoutWeight(1)
+              .onChange((value: string) => {
+                this.editNickname = value;
+              })
+          }
+          .width('100%')
+          .height(52)
+          .padding({ left: 16, right: 16 })
+          
+          Divider()
+            .color(this.getColors().divider)
+            .margin({ left: 16 })
+          
+          // 简介输入
+          Row() {
+            Text('简介')
+              .fontSize(15)
+              .fontColor(this.getColors().textPrimary)
+              .width(70)
+            
+            TextInput({ text: this.editBio, placeholder: '介绍一下自己吧' })
+              .fontSize(15)
+              .fontColor(this.getColors().textPrimary)
+              .placeholderColor(this.getColors().textTertiary)
+              .backgroundColor(Color.Transparent)
+              .layoutWeight(1)
+              .onChange((value: string) => {
+                this.editBio = value;
+              })
+          }
+          .width('100%')
+          .height(52)
+          .padding({ left: 16, right: 16 })
+        }
+        .width('100%')
+        .backgroundColor(this.getColors().cardBackground)
+        .borderRadius(12)
+        .margin({ left: 16, right: 16 })
+        
+        // 提示文字
+        Text('昵称和简介将展示在你的个人主页')
+          .fontSize(12)
+          .fontColor(this.getColors().textTertiary)
+          .margin({ top: 12, left: 16 })
+          .width('100%')
+        
+        Blank()
+      }
+      .width('100%')
+      .height('70%')
+      .backgroundColor(this.getColors().background)
+      .borderRadius({ topLeft: 16, topRight: 16 })
+      .position({ y: '30%' })
+    }
+    .width('100%')
+    .height('100%')
+    .transition({ type: TransitionType.Insert, opacity: 0 })
+    .transition({ type: TransitionType.Delete, opacity: 0 })
+  }
+  
+  // 保存用户资料
+  private async saveProfile(): Promise<void> {
+    if (this.isSavingProfile) {
+      return;
+    }
+    
+    // 验证输入
+    if (this.editNickname.trim().length === 0) {
+      promptAction.showToast({ message: '昵称不能为空' });
+      return;
+    }
+    
+    if (this.editNickname.trim().length > 20) {
+      promptAction.showToast({ message: '昵称不能超过20个字符' });
+      return;
+    }
+    
+    if (this.editBio.length > 100) {
+      promptAction.showToast({ message: '简介不能超过100个字符' });
+      return;
+    }
+    
+    this.isSavingProfile = true;
+    
+    try {
+      const apiService = APIService.getInstance();
+      await apiService.updateUserProfile(this.editNickname.trim(), this.editBio.trim());
+      
+      // 更新本地状态
+      this.userName = this.editNickname.trim();
+      this.userBio = this.editBio.trim().length > 0 ? this.editBio.trim() : '点击这里，填写简介';
+      
+      promptAction.showToast({ message: '保存成功' });
+      this.showEditProfile = false;
+    } catch (error) {
+      console.error('[UserProfilePage] 保存资料失败:', error);
+      const errorMessage = error instanceof Error ? error.message : '保存失败，请重试';
+      promptAction.showToast({ message: errorMessage });
+    } finally {
+      this.isSavingProfile = false;
+    }
   }
   
   // 退出登录菜单（在设置中处理）

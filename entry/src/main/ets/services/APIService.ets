@@ -922,6 +922,81 @@ export default class APIService {
   }
   
   /**
+   * 更新用户资料
+   * @param nickname 昵称（可选）
+   * @param bio 个人简介（可选）
+   */
+  public async updateUserProfile(nickname?: string, bio?: string): Promise<void> {
+    try {
+      if (!this._isLoggedIn) {
+        throw new APIError('请先登录', 'NOT_LOGGED_IN');
+      }
+      
+      const url = `${this.baseURL}/api/user/profile`;
+      const requestBody: Record<string, string> = {};
+      
+      if (nickname !== undefined && nickname.length > 0) {
+        requestBody['nickname'] = nickname;
+      }
+      if (bio !== undefined) {
+        requestBody['bio'] = bio;
+      }
+      
+      const requestOptions = this.createRequestOptions(
+        http.RequestMethod.PUT,
+        { contentType: 'application/json' },
+        requestBody
+      );
+      const response = await http.createHttp().request(url, requestOptions);
+      
+      if (response.responseCode === 200) {
+        console.info('[APIService] 更新用户资料成功');
+        // 通知监听器刷新用户信息
+        this.notifyListeners();
+      } else {
+        const result:ESObject = response.result as ESObject;
+        const message = (result && result['message']) ? result['message'] as string : '更新失败';
+        throw new APIError(message, 'UPDATE_FAILED');
+      }
+    } catch (error) {
+      console.error('[APIService] 更新用户资料失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('更新用户资料请求失败', 'NETWORK_ERROR');
+    }
+  }
+  
+  /**
+   * 获取用户资料详情
+   */
+  public async fetchUserProfile(): Promise<object> {
+    try {
+      if (!this._isLoggedIn) {
+        throw new APIError('请先登录', 'NOT_LOGGED_IN');
+      }
+      
+      const url = `${this.baseURL}/api/user/profile`;
+      const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
+      const response = await http.createHttp().request(url, requestOptions);
+      
+      if (response.responseCode === 200) {
+        const result = response.result;
+        console.info('[APIService] 获取用户资料成功');
+        return result as object;
+      } else {
+        throw new APIError('获取用户资料失败', 'FETCH_FAILED');
+      }
+    } catch (error) {
+      console.error('[APIService] 获取用户资料失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('获取用户资料请求失败', 'NETWORK_ERROR');
+    }
+  }
+  
+  /**
    * 获取随机配方列表(用于推荐)
    * @param limit 数量限制
    */
