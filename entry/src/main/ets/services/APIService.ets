@@ -85,6 +85,71 @@ interface HeaderOptions {
 // 状态变化监听器类型
 type StateChangeListener = () => void;
 
+// 推荐算法相关接口定义
+interface UserInteraction {
+  id: string;
+  name: string;
+  interactionType: 'like' | 'favorite';
+  estimatedAbv: number;
+  createdBy: string;
+  ingredients: string;
+}
+
+interface UserPreferences {
+  preferredAbv: number;
+  topCreators: string[];
+  ingredientWeights: Map<string, number>;
+  interactedRecipeIds: Set<string>;
+  avgRecipeWeight: number;
+}
+
+interface RecommendationScores {
+  ingredientMatch: number;
+  creatorMatch: number;
+  abvMatch: number;
+  popularity: number;
+}
+
+interface ScoredRecipe {
+  id: string;
+  name: string;
+  estimatedAbv: number;
+  createdBy: string;
+  ingredients: string;
+  likeCount: number;
+  favoriteCount: number;
+  scores: RecommendationScores;
+  totalScore: number;
+  matchReasons: string[];
+}
+
+// 定义配方数据接口
+interface RecipeData {
+  id: string;
+  name: string;
+  estimatedAbv: number;
+  createdBy: string;
+  ingredients: string;
+  likeCount: number;
+  favoriteCount: number;
+}
+
+// 推荐结果接口
+interface RecommendationResult {
+  id: string;
+  name: string;
+  estimatedAbv: number;
+  matchPercentage: number;
+  reason: string;
+  reasons: string[];
+  likeCount: number;
+}
+
+// 本地配方响应接口
+interface LocalRecipesResponse {
+  recipes?: RecipeData[];
+}
+
 /**
  * ==================== 环境配置 ====================
  * 切换环境：注释/取消注释下面的 BASE_URL 即可
@@ -665,28 +730,374 @@ export default class APIService {
   }
   
   /**
-   * 获取推荐列表（支持分页）
+   * 获取推荐列表（支持分页）- 现调用recipes接口并在本地实现推荐算法
    * @param page 页码（从1开始）
    * @param limit 每页数量
    */
   public async fetchRecommendations(page: number = 1, limit: number = 10): Promise<RecommendationsResponse> {
     try {
-      const url = `${this.baseURL}/api/recommendations?page=${page}&limit=${limit}`;
-      const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
-      const response = await http.createHttp().request(url, requestOptions);
-      
-      if (response.responseCode === 200) {
-        // expectDataType: OBJECT 已经自动解析为对象，无需 JSON.parse()
-        const result = response.result as RecommendationsResponse;
-        console.info(`[APIService] 推荐加载成功: 第${page}页, ${result.recommendations?.length || 0}条`);
-        return result;
-      } else {
-        throw new APIError('获取推荐列表失败', 'FETCH_FAILED');
+      if (!this._isLoggedIn) {
+        return {
+          recommendations: [],
+          message: '请先登录以获取个性化推荐'
+        };
       }
+
+      // 1. 获取用户的点赞和收藏数据
+      const userInteractions = await this.getUserInteractions();
+      if (userInteractions.length === 0) {
+        return {
+          recommendations: [],
+          message: '您还没有点赞或收藏任何配方，无法生成推荐'
+        };
+      }
+
+      // 2. 分析用户偏好
+      const userPreferences = this.analyzeUserPreferences(userInteractions);
+
+      // 3. 获取所有候选配方（调用recipes接口）
+      const allRecipesData: object = await this.getAllRecipes();
+      const recipesResponse = allRecipesData as LocalRecipesResponse;
+      if (!recipesResponse || !recipesResponse.recipes) {
+        throw new APIError('获取配方数据失败', 'FETCH_FAILED');
+      }
+
+      // 4. 过滤掉用户已交互的配方
+      const candidateRecipes: RecipeData[] = [];
+      recipesResponse.recipes.forEach((recipe: RecipeData) => {
+        if (!userPreferences.interactedRecipeIds.has(recipe.id)) {
+          candidateRecipes.push(recipe);
+        }
+      });
+
+      // 5. 计算推荐得分
+      const scoredRecipes: ScoredRecipe[] = this.calculateRecommendationScores(candidateRecipes, userPreferences);
+
+      // 6. 排序并应用分页
+      scoredRecipes.sort((a: ScoredRecipe, b: ScoredRecipe) => b.totalScore - a.totalScore);
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedRecipes: ScoredRecipe[] = [];
+      for (let i = startIndex; i < Math.min(endIndex, scoredRecipes.length); i++) {
+        paginatedRecipes.push(scoredRecipes[i]);
+      }
+
+      // 7. 格式化返回数据
+      const recommendations: RecommendationResult[] = [];
+      paginatedRecipes.forEach((recipe: ScoredRecipe) => {
+        recommendations.push(this.formatRecommendation(recipe));
+      });
+
+      console.info(`[APIService] 推荐加载成功: 第${page}页, ${recommendations.length}条`);
+      return {
+        recommendations,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(scoredRecipes.length / limit),
+          totalRecommendations: scoredRecipes.length,
+          limit: limit,
+          hasMore: page < Math.ceil(scoredRecipes.length / limit)
+        }
+      };
+
     } catch (error) {
       console.error('[APIService] 获取推荐列表失败:', error);
       return { recommendations: [], message: '加载失败' };
     }
+  }
+
+  /**
+   * 获取用户交互数据（点赞和收藏）
+   */
+  private async getUserInteractions(): Promise<UserInteraction[]> {
+    const interactions: UserInteraction[] = [];
+    
+    try {
+      // 获取用户点赞的配方
+      const likes: object[] = await this.fetchUserLikes();
+      likes.forEach((recipe: object) => {
+        const recipeData = recipe as RecipeData;
+        interactions.push({
+          id: recipeData.id || '',
+          name: recipeData.name || '',
+          interactionType: 'like',
+          estimatedAbv: recipeData.estimatedAbv || 0,
+          createdBy: recipeData.createdBy || '',
+          ingredients: recipeData.ingredients || ''
+        });
+      });
+
+      // 获取用户收藏的配方
+      const favorites: object[] = await this.fetchUserFavorites();
+      favorites.forEach((recipe: object) => {
+        const recipeData = recipe as RecipeData;
+        interactions.push({
+          id: recipeData.id || '',
+          name: recipeData.name || '',
+          interactionType: 'favorite',
+          estimatedAbv: recipeData.estimatedAbv || 0,
+          createdBy: recipeData.createdBy || '',
+          ingredients: recipeData.ingredients || ''
+        });
+      });
+
+    } catch (error) {
+      console.error('[APIService] 获取用户交互数据失败:', error);
+    }
+
+    return interactions;
+  }
+
+  /**
+   * 分析用户偏好
+   */
+  private analyzeUserPreferences(interactions: UserInteraction[]): UserPreferences {
+    const preferences: UserPreferences = {
+      preferredAbv: 0,
+      topCreators: [],
+      ingredientWeights: new Map(),
+      interactedRecipeIds: new Set(),
+      avgRecipeWeight: 1
+    };
+
+    // 记录已交互的配方ID
+    interactions.forEach(interaction => {
+      preferences.interactedRecipeIds.add(interaction.id);
+    });
+
+    // 计算偏好酒精度（中位数）
+    const abvList = interactions
+      .filter(i => i.estimatedAbv > 0)
+      .map(i => i.estimatedAbv)
+      .sort((a, b) => a - b);
+    
+    if (abvList.length > 0) {
+      const mid = Math.floor(abvList.length / 2);
+      preferences.preferredAbv = abvList.length % 2 === 1
+        ? abvList[mid]
+        : (abvList[mid - 1] + abvList[mid]) / 2;
+    }
+
+    // 统计创建者偏好
+    const creatorMap = new Map<string, number>();
+    interactions.forEach(interaction => {
+      if (interaction.createdBy) {
+        const count = creatorMap.get(interaction.createdBy) || 0;
+        creatorMap.set(interaction.createdBy, count + 1);
+      }
+    });
+    const creatorPairs: [string, number][] = [];
+    creatorMap.forEach((count, creator) => {
+      creatorPairs.push([creator, count]);
+    });
+    creatorPairs.sort((a: [string, number], b: [string, number]) => b[1] - a[1]);
+    
+    preferences.topCreators = [];
+    for (let i = 0; i < Math.min(3, creatorPairs.length); i++) {
+      preferences.topCreators.push(creatorPairs[i][0]);
+    }
+
+    // 分析原料偏好
+    let totalWeight = 0;
+    interactions.forEach(interaction => {
+      const weight = interaction.interactionType === 'favorite' ? 2 : 1;
+      totalWeight += weight;
+      
+      if (interaction.ingredients) {
+        const ingredients = interaction.ingredients.split(',');
+        ingredients.forEach(rawIng => {
+          const ingredient = this.normalizeIngredient(rawIng.trim());
+          const currentWeight = preferences.ingredientWeights.get(ingredient) || 0;
+          preferences.ingredientWeights.set(ingredient, currentWeight + weight);
+        });
+      }
+    });
+
+    preferences.avgRecipeWeight = interactions.length > 0 ? totalWeight / interactions.length : 1;
+
+    return preferences;
+  }
+
+  /**
+   * 规范化原料名称
+   */
+  private normalizeIngredient(ingredient: string): string {
+    const ingredientNormalizationMap: Record<string, string> = {
+      "金酒 (gin)": "金酒",
+      "gin": "金酒",
+      "伏特加 (vodka)": "伏特加",
+      "vodka": "伏特加",
+      "朗姆酒 (rum)": "朗姆酒",
+      "rum": "朗姆酒",
+      "龙舌兰 (tequila)": "龙舌兰",
+      "tequila": "龙舌兰",
+      "威士忌 (whiskey)": "威士忌",
+      "whiskey": "威士忌",
+      "whisky": "威士忌",
+      "白兰地 (brandy)": "白兰地",
+      "brandy": "白兰地",
+      "利口酒 (liqueur)": "利口酒",
+      "liqueur": "利口酒",
+      "苦精 (bitters)": "苦精",
+      "bitters": "苦精",
+      "苏打水 (soda)": "苏打水",
+      "soda": "苏打水",
+      "汤力水 (tonic)": "汤力水",
+      "tonic": "汤力水",
+      "柠檬汁 (lemon juice)": "柠檬汁",
+      "lemon juice": "柠檬汁",
+      "青柠汁 (lime juice)": "青柠汁",
+      "lime juice": "青柠汁"
+    };
+
+    const lowerIngredient = ingredient.toLowerCase().trim();
+    const keys = Object.keys(ingredientNormalizationMap);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const value = ingredientNormalizationMap[key];
+      if (lowerIngredient === key.toLowerCase()) {
+        return value;
+      }
+    }
+    return ingredient.replace(/\(.*?\)/g, '').trim();
+  }
+
+  /**
+   * 获取所有配方数据
+   */
+  private async getAllRecipes(): Promise<object> {
+    try {
+      // 获取足够多的配方用于推荐计算，设置较大的limit
+      const response: object = await this.fetchRecipes(1, 1000, '', 'default');
+      return response;
+    } catch (error) {
+      console.error('[APIService] 获取所有配方失败:', error);
+      throw new APIError('获取配方数据失败', 'FETCH_FAILED');
+    }
+  }
+
+  /**
+   * 计算推荐得分
+   */
+  private calculateRecommendationScores(recipes: RecipeData[], preferences: UserPreferences): ScoredRecipe[] {
+    const results: ScoredRecipe[] = [];
+    
+    recipes.forEach((recipe: RecipeData) => {
+      const scores: RecommendationScores = {
+        ingredientMatch: 0,
+        creatorMatch: 0,
+        abvMatch: 0,
+        popularity: 0
+      };
+      const matchReasons: string[] = [];
+
+      // 原料匹配得分 (权重 4)
+      if (recipe.ingredients) {
+        const ingredientList: string[] = recipe.ingredients.split(',');
+        const recipeIngredients: string[] = [];
+        ingredientList.forEach((ing: string) => {
+          recipeIngredients.push(this.normalizeIngredient(ing.trim()));
+        });
+        
+        let rawIngredientScore = 0;
+        recipeIngredients.forEach((ing: string) => {
+          const weight = preferences.ingredientWeights.get(ing) || 0;
+          rawIngredientScore += weight;
+        });
+
+        const smoothFactor = 0.5;
+        scores.ingredientMatch = 4 * (rawIngredientScore / (preferences.avgRecipeWeight + smoothFactor));
+        scores.ingredientMatch = Math.min(scores.ingredientMatch, 4);
+
+        const commonIngredients: string[] = [];
+        recipeIngredients.forEach((ing: string) => {
+          if (preferences.ingredientWeights.has(ing)) {
+            commonIngredients.push(ing);
+          }
+        });
+        
+        if (commonIngredients.length > 0) {
+          const displayIngredients: string[] = [];
+          for (let i = 0; i < Math.min(3, commonIngredients.length); i++) {
+            displayIngredients.push(commonIngredients[i]);
+          }
+          const display = displayIngredients.join('、');
+          matchReasons.push(`可能喜欢的原料: ${display}${commonIngredients.length > 3 ? '等' : ''}`);
+        }
+      }
+
+      // 创建者匹配得分 (权重 3)
+      if (recipe.createdBy && preferences.topCreators.includes(recipe.createdBy)) {
+        scores.creatorMatch = 3;
+        matchReasons.push(`可能喜欢的调酒师: ${recipe.createdBy}`);
+      }
+
+      // 酒精度匹配得分 (权重 2)
+      if (preferences.preferredAbv > 0 && recipe.estimatedAbv > 0) {
+        const diff = Math.abs(recipe.estimatedAbv - preferences.preferredAbv);
+        scores.abvMatch = Math.max(0, 2 * (1 - diff / 20));
+        if (scores.abvMatch > 1.0) {
+          matchReasons.push(`可能喜欢的酒精浓度: ${recipe.estimatedAbv}%`);
+        }
+      }
+
+      // 人气得分 (权重 1.5)
+      const totalInteractions = (recipe.likeCount || 0) + (recipe.favoriteCount || 0);
+      if (totalInteractions > 0) {
+        scores.popularity = Math.min(1.5, 1.5 * Math.log(1 + totalInteractions / 50));
+        if (totalInteractions > 10) {
+          matchReasons.push(`热门配方 (已有${totalInteractions}次👍&⭐)`);
+        }
+      }
+
+      const totalScore = scores.ingredientMatch + scores.creatorMatch + scores.abvMatch + scores.popularity;
+
+      const scoredRecipe: ScoredRecipe = {
+        id: recipe.id,
+        name: recipe.name,
+        estimatedAbv: recipe.estimatedAbv,
+        createdBy: recipe.createdBy,
+        ingredients: recipe.ingredients,
+        likeCount: recipe.likeCount,
+        favoriteCount: recipe.favoriteCount,
+        scores: scores,
+        totalScore: totalScore,
+        matchReasons: matchReasons
+      };
+      
+      results.push(scoredRecipe);
+    });
+    
+    return results;
+  }
+
+  /**
+   * 格式化推荐结果
+   */
+  private formatRecommendation(recipe: ScoredRecipe): RecommendationResult {
+    const maxPossibleScore = 4 + 3 + 2 + 1.5; // 总权重
+    const matchPercentage = Math.min(100, Math.round((recipe.totalScore / maxPossibleScore) * 100));
+
+    let reasons: string[] = [];
+    for (let i = 0; i < Math.min(3, recipe.matchReasons.length); i++) {
+      reasons.push(recipe.matchReasons[i]);
+    }
+    if (reasons.length === 0) {
+      reasons = ['您可能喜欢的新配方'];
+    }
+    const reasonText = reasons.join(' • ');
+
+    const result: RecommendationResult = {
+      id: recipe.id,
+      name: recipe.name,
+      estimatedAbv: recipe.estimatedAbv,
+      matchPercentage: matchPercentage,
+      reason: reasonText,
+      reasons: reasons,
+      likeCount: recipe.likeCount || 0
+    };
+
+    return result;
   }
   
   /**
@@ -918,6 +1329,81 @@ export default class APIService {
         throw error;
       }
       throw new APIError('获取点赞请求失败', 'NETWORK_ERROR');
+    }
+  }
+  
+  /**
+   * 更新用户资料
+   * @param nickname 昵称（可选）
+   * @param bio 个人简介（可选）
+   */
+  public async updateUserProfile(nickname?: string, bio?: string): Promise<void> {
+    try {
+      if (!this._isLoggedIn) {
+        throw new APIError('请先登录', 'NOT_LOGGED_IN');
+      }
+      
+      const url = `${this.baseURL}/api/user/profile`;
+      const requestBody: Record<string, string> = {};
+      
+      if (nickname !== undefined && nickname.length > 0) {
+        requestBody['nickname'] = nickname;
+      }
+      if (bio !== undefined) {
+        requestBody['bio'] = bio;
+      }
+      
+      const requestOptions = this.createRequestOptions(
+        http.RequestMethod.PUT,
+        { contentType: 'application/json' },
+        requestBody
+      );
+      const response = await http.createHttp().request(url, requestOptions);
+      
+      if (response.responseCode === 200) {
+        console.info('[APIService] 更新用户资料成功');
+        // 通知监听器刷新用户信息
+        this.notifyListeners();
+      } else {
+        const result:ESObject = response.result as ESObject;
+        const message = (result && result['message']) ? result['message'] as string : '更新失败';
+        throw new APIError(message, 'UPDATE_FAILED');
+      }
+    } catch (error) {
+      console.error('[APIService] 更新用户资料失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('更新用户资料请求失败', 'NETWORK_ERROR');
+    }
+  }
+  
+  /**
+   * 获取用户资料详情
+   */
+  public async fetchUserProfile(): Promise<object> {
+    try {
+      if (!this._isLoggedIn) {
+        throw new APIError('请先登录', 'NOT_LOGGED_IN');
+      }
+      
+      const url = `${this.baseURL}/api/user/profile`;
+      const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
+      const response = await http.createHttp().request(url, requestOptions);
+      
+      if (response.responseCode === 200) {
+        const result = response.result;
+        console.info('[APIService] 获取用户资料成功');
+        return result as object;
+      } else {
+        throw new APIError('获取用户资料失败', 'FETCH_FAILED');
+      }
+    } catch (error) {
+      console.error('[APIService] 获取用户资料失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('获取用户资料请求失败', 'NETWORK_ERROR');
     }
   }
   
