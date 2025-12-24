@@ -29,6 +29,9 @@ export interface Recipe {
   id: string;
   name: string;
   createdBy: string;
+  creatorAvatar?: string;  // 作者头像（前端填充）
+  image?: string;  // 图片路径
+  description?: string; //配方描述
   instructions?: string;
   estimatedAbv: number;
   likeCount: number;
