@@ -45,6 +45,7 @@ interface InteractionStatus {
 interface RecipeDetail {
   id: string;
   name: string;
+  description: string;
   createdBy: string;
   instructions: string;
   estimatedAbv: number;
@@ -167,6 +168,7 @@ struct RecipeDetailPage {
       this.recipe = {
         id: Reflect.get(detail, 'id') as string,
         name: Reflect.get(detail, 'name') as string,
+        description: (Reflect.get(detail, 'description') as string) || '',
         createdBy: Reflect.get(detail, 'createdBy') as string,
         instructions: Reflect.get(detail, 'instructions') as string,
         estimatedAbv: this.parseNumber(estimatedAbvValue),
@@ -723,6 +725,23 @@ struct RecipeDetailPage {
           .fontWeight(FontWeight.Medium)
         }
         .width('100%')
+        
+        // 显示描述
+        if (this.recipe.description && this.recipe.description.length > 0) {
+          Column({ space: 4 }) {
+            Text('description：')
+              .fontSize(14)
+              .fontColor('#999999')
+              .width('100%')
+            Text(this.recipe.description)
+              .fontSize(14)
+              .fontColor('#666666')
+              .width('100%')
+              .lineHeight(22)
+          }
+          .width('100%')
+          .margin({ top: 8 })
+        }
       }
       .width('100%')
       .padding(20)

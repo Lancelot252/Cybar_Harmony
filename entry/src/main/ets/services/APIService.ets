@@ -5,6 +5,8 @@ import { http } from '@kit.NetworkKit';
 import { common } from '@kit.AbilityKit';
 import preferences from '@ohos.data.preferences';
 import { RecipesResponse, RecommendationsResponse } from '../models/Recipe';
+import fs from '@ohos.file.fs';
+import { util } from '@kit.ArkTS';
 
 
 // 自定义错误类
@@ -157,11 +159,11 @@ interface LocalRecipesResponse {
  */
 
 // ⚠️ 开发环境 - 本地调试（使用时取消注释这行，注释掉生产环境）
-// const BASE_URL: string = 'http://172.26.19.215:8080';
+const BASE_URL: string = 'http://172.26.110.222:8080';
 // const BASE_URL: string = 'http://10.0.2.2:80';
 // const BASE_URL: string = 'http://192.168.43.231:8080';
 // ⚠️ 生产环境 - 远程服务器（发布时取消注释这行，注释掉开发环境）
-const BASE_URL: string = 'http://47.101.11.98:8080';
+// const BASE_URL: string = 'http://47.101.11.98:8080';
 
 /**
  * API服务单例类
@@ -1481,7 +1483,7 @@ export default class APIService {
       const url = `${this.baseURL}/api/recipes`;
       const requestOptions = this.createRequestOptions(
         http.RequestMethod.POST,
-        undefined,
+        { contentType: 'application/json' },
         recipeData
       );
       const response = await httpRequest.request(url, requestOptions);
@@ -1494,6 +1496,144 @@ export default class APIService {
       }
     } catch (error) {
       console.error('[APIService] 创建配方失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('创建配方失败', 'NETWORK_ERROR');
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+  
+  /**
+   * 创建配方（带图片上传）
+   * 使用 multipart/form-data 格式上传图片和数据
+   */
+  public async createRecipeWithImage(
+    recipeData: object,
+    imageUri?: string,
+    context?: common.UIAbilityContext
+  ): Promise<object> {
+    if (!this.isLoggedIn) {
+      throw new APIError('请先登录', 'AUTH_REQUIRED');
+    }
+
+    // 如果没有图片，使用普通API
+    if (!imageUri || imageUri.length === 0) {
+      console.info('[APIService] 无图片，使用普通API创建配方');
+      return this.createRecipe(recipeData);
+    }
+
+    const httpRequest = http.createHttp();
+    try {
+      const url = `${this.baseURL}/api/custom/cocktails`;
+      console.info('[APIService] 创建配方(带图片) - URL:', url);
+
+      // 提取数据字段
+      const name = Reflect.get(recipeData, 'name') as string;
+      const description = Reflect.get(recipeData, 'description') as string;
+      const instructions = Reflect.get(recipeData, 'instructions') as string;
+      const estimatedAbv = Reflect.get(recipeData, 'estimatedAbv') as number;
+      const ingredients = Reflect.get(recipeData, 'ingredients') as Array<object>;
+
+      // 将 instructions 转为 steps 数组
+      const steps = instructions ? instructions.split('\n').filter((s: string) => s.trim().length > 0) : [];
+
+      // 生成 boundary
+      const boundary = '----WebKitFormBoundary' + Date.now().toString(16);
+
+      // 读取图片文件
+      let imageData: ArrayBuffer | null = null;
+      let fileName = 'cocktail.jpg';
+      try {
+        // 打开文件
+        const file = fs.openSync(imageUri, fs.OpenMode.READ_ONLY);
+        const stat = fs.statSync(imageUri);
+        const fileSize = stat.size;
+        imageData = new ArrayBuffer(fileSize);
+        fs.readSync(file.fd, imageData);
+        fs.closeSync(file);
+
+        // 从URI提取文件名
+        const uriParts = imageUri.split('/');
+        fileName = uriParts[uriParts.length - 1] || 'cocktail.jpg';
+        console.info('[APIService] 读取图片成功, 大小:', fileSize, '文件名:', fileName);
+      } catch (fileError) {
+        console.error('[APIService] 读取图片文件失败:', fileError);
+        // 如果读取失败，回退到普通API
+        return this.createRecipe(recipeData);
+      }
+
+      // 构建 multipart/form-data 请求体
+      const textEncoder = new util.TextEncoder();
+      const parts: Uint8Array[] = [];
+
+      // 辅助函数：将字符串编码为Uint8Array
+      const encodeString = (str: string): Uint8Array => {
+        return textEncoder.encodeInto(str);
+      };
+
+      // 添加文本字段
+      const textFields: Record<string, string> = {
+        'name': name || '',
+        'description': description || '',
+        'estimatedAbv': String(estimatedAbv || 0),
+        'ingredients': JSON.stringify(ingredients || []),
+        'steps': JSON.stringify(steps)
+      };
+
+      for (const key of Object.keys(textFields)) {
+        const fieldValue = textFields[key];
+        const fieldHeader = `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${fieldValue}\r\n`;
+        parts.push(encodeString(fieldHeader));
+      }
+
+      // 添加图片文件
+      if (imageData) {
+        const fileHeader = `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${fileName}"\r\nContent-Type: image/jpeg\r\n\r\n`;
+        parts.push(encodeString(fileHeader));
+        parts.push(new Uint8Array(imageData));
+        parts.push(encodeString('\r\n'));
+      }
+
+      // 添加结束标记
+      const endBoundary = `--${boundary}--\r\n`;
+      parts.push(encodeString(endBoundary));
+
+      // 合并所有部分
+      const totalLength = parts.reduce((sum, part) => sum + part.byteLength, 0);
+      const body = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const part of parts) {
+        body.set(part, offset);
+        offset += part.byteLength;
+      }
+
+      console.info('[APIService] 请求体总大小:', totalLength);
+
+      const requestOptions: http.HttpRequestOptions = {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Cookie': this.authCookie
+        },
+        extraData: body.buffer,
+        connectTimeout: 30000,
+        readTimeout: 60000
+      };
+
+      const response = await httpRequest.request(url, requestOptions);
+      console.info('[APIService] 创建配方响应码:', response.responseCode);
+
+      if (response.responseCode === 201 || response.responseCode === 200) {
+        console.info('[APIService] 创建配方(带图片)成功');
+        return response.result as object;
+      } else {
+        console.error('[APIService] 创建配方失败:', response.result);
+        throw new APIError(`创建配方失败 (${response.responseCode})`, 'CREATE_FAILED');
+      }
+    } catch (error) {
+      console.error('[APIService] 创建配方(带图片)失败:', error);
       if (error instanceof APIError) {
         throw error;
       }
