@@ -48,6 +48,8 @@ interface CreateRecipeData {
   instructions: string;
   estimatedAbv: number;
   ingredients: RecipeIngredientData[];
+  description?: string;
+  steps?: string[];
 }
 
 @Component
@@ -460,6 +462,15 @@ export struct CustomRecipePage {
       return;
     }
     
+    // 至少需要一个有效步骤，避免空说明导致后端/详情页异常
+    const normalizedSteps: StepEntry[] = this.steps
+      .map((s, idx): StepEntry => ({ id: s.id, index: idx + 1, text: s.text.trim() }))
+      .filter(s => s.text.length > 0);
+    if (normalizedSteps.length === 0) {
+      promptAction.showToast({ message: '请至少填写一个步骤' });
+      return;
+    }
+    
     this.isSaving = true;
     
     try {
@@ -476,39 +487,41 @@ export struct CustomRecipePage {
         return data;
       });
       
-      // 构建步骤字符串
-      const instructions = this.steps
-        .filter(s => s.text.trim().length > 0)
+      // 规范化步骤 - 同时提供字符串和数组，兼容后端解析
+      const instructions: string = normalizedSteps
         .map(s => `${s.index}. ${s.text}`)
         .join('\n');
+      const stepsArray: string[] = normalizedSteps.map(s => s.text);
       
       // 调用API保存
       const recipeData: CreateRecipeData = {
         name: this.cocktailName,
         instructions: instructions,
         estimatedAbv: this.estimatedAbv,
-        ingredients: ingredients
+        ingredients: ingredients,
+        description: this.cocktailDescription.trim(),
+        steps: stepsArray
       };
-      const result = await apiService.createRecipe(recipeData);
+      console.info('[CustomRecipe] 保存配方数据:', JSON.stringify(recipeData));
+      await apiService.createRecipe(recipeData);
       
       promptAction.showToast({ message: '配方保存成功!' });
       
-      // 清空表单
+      // 清空表单并重置状态，确保步骤区也被清空
       this.cocktailName = '';
       this.cocktailDescription = '';
       this.selectedIngredients = [];
-      this.steps = [{ id: '1', index: 1, text: '' }];
+      this.steps = [{ id: Date.now().toString(), index: 1, text: '' }];
       this.estimatedAbv = 0;
+      this.abvDescription = '无酒精或低度酒精，适合任何人饮用';
+      this.currentCategory = 'base_alcohol';
+      this.ingredientSearch = '';
+      this.aiTasteDescription = '';
+      this.aiOccasion = '';
+      this.aiAlcoholStrength = '';
+      this.showAISection = true;
       
-      // 延迟后安全返回
-      setTimeout(() => {
-        try {
-          router.back();
-        } catch (e) {
-          console.error('[CustomRecipe] 返回失败:', e);
-        }
-      }, 1500);
-      
+      // 不强制自动返回，避免导航导致的闪退，让用户自行返回或继续创建
     } catch (error) {
       console.error('[CustomRecipe] 保存失败:', error);
       const message = error instanceof Error ? error.message : '保存失败';

@@ -511,40 +511,44 @@ export struct RecipesPage {
 struct RecipeCard {
   @Prop recipe: Recipe;
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
-  @State imageLoadError: boolean = false;
-  @State avatarLoadError: boolean = false; // 👈 新增:头像加载失败状态
+  @State avatarLoadError: boolean = false;
   onTap?: () => void;
+  
+  // 默认图片和头像路径
+  private readonly DEFAULT_WINE_IMAGE: string = '/uploads/cocktails/jiu.jpg';
+  private readonly DEFAULT_AVATAR_PATH: string = '/uploads/avatars/test.jpg';
   
   private getColors(): ThemeColors {
     return this.isDarkMode ? DarkTheme : LightTheme;
   }
   
+  /**
+   * 获取配方图片URL
+   * 采用 RecipeDetailPage 的模式：本地图片不存在或为空则用默认图片
+   */
   private getImageSource(): string | Resource {
-    if (this.imageLoadError || !this.recipe.image) {
-      return $r('app.media.wine');
-    }
-    
-    if (this.recipe.image.startsWith('/')) {
-      const fullUrl = 'http://47.101.11.98:8080' + this.recipe.image;
-      return fullUrl;
-    }
-    
-    return this.recipe.image;
+    // 优先使用配方的图片，失败则用默认图片
+    const imagePath = this.recipe.image || this.DEFAULT_WINE_IMAGE;
+    return apiService.getFullImageUrl(imagePath);
   }
 
-  // 👇 新增:获取作者头像URL
+  /**
+   * 获取作者头像URL
+   * 尝试构造本地头像路径，失败则用默认头像
+   */
   private getAvatarSource(): string | Resource {
-    if (this.avatarLoadError || !this.recipe.creatorAvatar) {
-      console.info('头像加载失败,[RecipeCard] 使用默认头像');
-      return $r('app.media.profile_cat'); // 默认头像
+    if (this.avatarLoadError) {
+      return apiService.getFullImageUrl(this.DEFAULT_AVATAR_PATH);
     }
     
-    if (this.recipe.creatorAvatar.startsWith('/')) {
-      const fullUrl = 'http://47.101.11.98:8080' + this.recipe.creatorAvatar;
-      return fullUrl;
+    // 根据 createdBy 用户名构造头像路径
+    if (this.recipe.createdBy) {
+      const avatarPath = `/uploads/avatars/${this.recipe.createdBy}.jpg`;
+      return apiService.getFullImageUrl(avatarPath);
     }
     
-    return this.recipe.creatorAvatar;
+    // 默认头像
+    return apiService.getFullImageUrl(this.DEFAULT_AVATAR_PATH);
   }
 
   build() {
@@ -561,7 +565,7 @@ struct RecipeCard {
         })
         .onError(() => {
           console.error(`[RecipeCard] 图片加载失败: ${this.recipe.name}`);
-          this.imageLoadError = true;
+          // 加载失败，Image 组件会使用 alt 的默认图片
         })
       
       // 内容区域
@@ -613,7 +617,10 @@ struct RecipeCard {
               .alt($r('app.media.profile_cat')) // 加载失败时显示默认图标
               .onError(() => {
                 console.error(`[RecipeCard] 头像加载失败: ${this.recipe.createdBy}`);
-                this.avatarLoadError = true;
+                // 本地头像加载失败，标记为失败，下次调用 getAvatarSource 会返回默认头像
+                if (!this.avatarLoadError) {
+                  this.avatarLoadError = true;
+                }
               })
             
             Text(this.recipe.createdBy)

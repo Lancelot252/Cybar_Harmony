@@ -5,7 +5,34 @@ import { http } from '@kit.NetworkKit';
 import { common } from '@kit.AbilityKit';
 import preferences from '@ohos.data.preferences';
 import { RecipesResponse, RecommendationsResponse } from '../models/Recipe';
+import request from '@ohos.request';
+import fs from '@ohos.file.fs';
 
+interface AdminCommentsResponse {
+  comments: AdminComment[];
+  totalItems?: number;
+}
+
+// 适配后端 /api/recipes 的返回结构
+interface AdminRecipesResponse {
+  recipes: AdminRecipe[];
+  totalPages?: number;
+  currentPage?: number;
+  sortBy?: string;
+}
+
+interface AdminUsersResponse {
+  users: User[];
+  totalItems: number;
+  totalPages: number;
+  currentPage: number;
+}
+
+// ✅ 修正：适配 server/routes/admin.js 返回的 { totalRecipes, totalUsers }
+export interface AdminStats {
+  totalUsers: number;
+  totalRecipes: number;
+}
 
 // 自定义错误类
 export class APIError extends Error {
@@ -18,11 +45,36 @@ export class APIError extends Error {
   }
 }
 
+export interface AdminUser {
+  id: string;
+  username: string;
+  role: string;
+  avatar: string;
+  signature: string;
+}
+
+export interface AdminRecipe {
+  id: string;
+  name: string;
+  createdBy: string;
+  likeCount: number;
+  favoriteCount: number;
+}
+
+export interface AdminComment {
+  id: string;
+  user_name?: string;
+  username: string;
+  text: string;
+  timestamp: string;
+  recipeId?: string;
+}
+
 // API响应基础结构
 export interface APIResponse<T> {
   success?: boolean;
-  message?: string;
-  data?: T;
+  message: string;
+  data: T;
 }
 
 // 用户信息
@@ -30,6 +82,8 @@ export interface User {
   id: string;
   username: string;
   role: string;
+  avatar: string;
+  signature: string;
 }
 
 // 认证状态
@@ -386,7 +440,9 @@ export default class APIService {
       this.updateLoginState(true, {
         id: '',
         username: cache.username,
-        role: cache.role
+        role: cache.role,
+        avatar: '',
+        signature: ''
       });
     } catch (error) {
       console.error('[APIService] 恢复登录缓存失败:', error);
@@ -446,7 +502,9 @@ export default class APIService {
           const user: User = {
             id: '',
             username: authStatus.username,
-            role: authStatus.role
+            role: authStatus.role,
+            avatar: '',
+            signature: ''
           };
           const cookie = this.extractSessionCookie(response);
           if (cookie && cookie.length > 0) {
@@ -530,7 +588,9 @@ export default class APIService {
         const user: User = {
           id: '',
           username: resolvedUsername,
-          role: resolvedRole
+          role: resolvedRole,
+          avatar: '',
+          signature: ''
         };
 
         const cookie = this.extractSessionCookie(response);
@@ -1714,6 +1774,254 @@ export default class APIService {
     } finally {
       httpRequest.destroy();
     }
+  }
+  
+  public getFullImageUrl(relativePath: string | undefined): string {
+    if (!relativePath) {
+      return '';
+    }
+    if (relativePath.startsWith('http')) {
+      return relativePath;
+    }
+    const base = this.baseURL.endsWith('/') ? this.baseURL.slice(0, -1) : this.baseURL;
+    const path = relativePath.startsWith('/') ? relativePath : '/' + relativePath;
+    return `${base}${path}`;
+  }
+  
+  public async fetchCurrentUser(): Promise<User> {
+    try {
+      if (!this._isLoggedIn) {
+        throw new APIError('未登录', 'NOT_LOGGED_IN');
+      }
+
+      const url = `${this.baseURL}/api/user/current`;
+      const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
+      const response = await http.createHttp().request(url, requestOptions);
+
+      if (response.responseCode === 200) {
+        const userData = response.result as User;
+        this._currentUser = userData;
+        this.updateLoginState(true, userData);
+        return userData;
+      } else {
+        throw new APIError('获取用户信息失败', 'FETCH_FAILED');
+      }
+    } catch (error) {
+      console.error('[APIService] fetchCurrentUser failed:', error);
+      if (error instanceof APIError) {
+        throw error;
+      } else if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new APIError('获取用户信息发生未知错误', 'UNKNOWN');
+      }
+    }
+  }
+  
+  public async uploadAvatar(context: common.UIAbilityContext, filePath: string): Promise<boolean> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        if (!this._isLoggedIn) {
+          reject(new APIError('未登录', 'NOT_LOGGED_IN'));
+          return;
+        }
+
+        console.info(`[Upload Monitor] 开始上传头像... 本地路径: ${filePath}`);
+
+        let uploadConfig: request.UploadConfig = {
+          url: `${this.baseURL}/api/user/avatar`,
+          header: {
+            'Cookie': this.authCookie,
+            'Content-Type': 'multipart/form-data'
+          },
+          method: 'POST',
+          files: [{
+            filename: 'avatar.jpg',
+            name: 'avatar',
+            uri: `internal://cache/${filePath.split('/').pop()}`,
+            type: 'image/jpeg'
+          }],
+          data: []
+        };
+
+        const uploadTask = await request.uploadFile(context, uploadConfig);
+
+        uploadTask.on('complete', (taskStates) => {
+          this.fetchCurrentUser().then((updatedUser) => {
+            console.info('========== [Upload Monitor] 上传成功报告 ==========');
+            console.info(`[Monitor] 用户名: ${updatedUser.username}`);
+            console.info(`[Monitor] 原始Avatar字段: ${updatedUser.avatar}`);
+            console.info(`[Monitor] 最终显示URL: ${this.getFullImageUrl(updatedUser.avatar)}`);
+            console.info('===================================================');
+            resolve(true);
+          }).catch((err: Error) => {
+            console.warn(`[Upload Monitor] 文件上传成功，但刷新用户信息失败: ${JSON.stringify(err)}`);
+            resolve(true);
+          });
+        });
+
+        uploadTask.on('fail', (taskStates) => {
+          console.error('[Upload Monitor] ❌ 上传失败:', JSON.stringify(taskStates));
+          reject(new APIError('上传失败', 'UPLOAD_FAILED'));
+        });
+
+      } catch (error) {
+        console.error('[Upload Monitor] 创建上传任务出错:', error);
+        reject(error);
+      }
+    });
+  }
+  
+  public async put(path: string, data: object): Promise<object> {
+    if (!this.isLoggedIn) {
+      throw new APIError('请先登录', 'AUTH_REQUIRED');
+    }
+
+    const httpRequest = http.createHttp();
+    try {
+      const url = `${this.baseURL}${path}`;
+      const requestOptions = this.createRequestOptions(
+        http.RequestMethod.PUT,
+        { contentType: 'application/json' },
+        data
+      );
+
+      console.info(`[APIService] 正在发送 PUT 请求至: ${url}`);
+      const response = await httpRequest.request(url, requestOptions);
+
+      if (response.responseCode === 200 || response.responseCode === 204) {
+        console.info('[APIService] 数据更新成功');
+        return response.result as object;
+      } else {
+        throw new APIError(`更新失败 (状态码: ${response.responseCode})`, 'UPDATE_FAILED');
+      }
+    } catch (error) {
+      console.error('[APIService] PUT 请求异常:', error);
+      if (error instanceof APIError) throw error;
+      throw new APIError('服务器更新请求失败', 'NETWORK_ERROR');
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+  
+  public async getAdminStats(): Promise<AdminStats> {
+    console.info('>>> 正在调用 getAdminStats...');
+    try {
+      const url = `${this.baseURL}/api/admin/stats`;
+      const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
+      const response = await http.createHttp().request(url, requestOptions);
+
+      console.info('远程服务器返回:', JSON.stringify(response.result));
+
+      if (response.responseCode === 200) {
+        return response.result as AdminStats;
+      }
+      throw new APIError('获取统计数据失败');
+    } catch (error) {
+      if (error instanceof Error) { throw error; }
+      else { throw new APIError('未知错误: ' + JSON.stringify(error)); }
+    }
+  }
+
+  public async getAllUsers(): Promise<User[]> {
+    try {
+      const url = `${this.baseURL}/api/admin/users?limit=100`;
+      const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
+      const response = await http.createHttp().request(url, requestOptions);
+
+      if (response.responseCode === 200) {
+        const res: AdminUsersResponse = (typeof response.result === 'string' ? JSON.parse(response.result) : response.result) as AdminUsersResponse;
+        console.info('[APIService] Admin用户列表原始数据:', JSON.stringify(res.users[0]));
+        if (res.users && Array.isArray(res.users)) {
+          return res.users;
+        }
+        return [];
+      }
+      throw new APIError('获取用户列表失败');
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new APIError('未知错误: ' + JSON.stringify(error));
+      }
+    }
+  }
+
+  public async deleteUser(userId: string): Promise<boolean> {
+    try {
+      const url = `${this.baseURL}/api/admin/users/${userId}`;
+      const requestOptions = this.createRequestOptions(http.RequestMethod.DELETE);
+      const response = await http.createHttp().request(url, requestOptions);
+
+      return response.responseCode === 200;
+    } catch (error) {
+      console.error('Delete user failed:', error);
+      return false;
+    }
+  }
+
+  public async getAllRecipesForAdmin(): Promise<AdminRecipe[]> {
+    try {
+      const url = `${this.baseURL}/api/recipes?limit=100`;
+      const requestOptions = this.createRequestOptions(http.RequestMethod.GET);
+      const response = await http.createHttp().request(url, requestOptions);
+
+      if (response.responseCode === 200) {
+        const res = (typeof response.result === 'string' ? JSON.parse(response.result) : response.result) as AdminRecipesResponse;
+
+        if (res.recipes && Array.isArray(res.recipes)) {
+          return res.recipes;
+        }
+        return [];
+      }
+      throw new APIError('获取配方列表失败');
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new APIError('未知错误: ' + JSON.stringify(error));
+      }
+    }
+  }
+
+  public async deleteRecipe(recipeId: string): Promise<boolean> {
+    try {
+      const url = `${this.baseURL}/api/recipes/${recipeId}`;
+      const requestOptions = this.createRequestOptions(http.RequestMethod.DELETE);
+      const response = await http.createHttp().request(url, requestOptions);
+
+      return response.responseCode === 200;
+    } catch (error) {
+      console.error('Delete recipe failed:', error);
+      return false;
+    }
+  }
+  
+  public async getAdminComments(): Promise<AdminComment[]> {
+    try {
+      const url = `${this.baseURL}/api/admin/comments?limit=100`;
+      const response = await http.createHttp().request(url, this.createRequestOptions(http.RequestMethod.GET));
+
+      if (response.responseCode === 200) {
+        const res = (typeof response.result === 'string' ? JSON.parse(response.result) : response.result) as AdminCommentsResponse;
+
+        if (res.comments && Array.isArray(res.comments)) {
+          return res.comments;
+        }
+        return [];
+      }
+      return [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  public async deleteComment(commentId: string): Promise<boolean> {
+    try {
+      const url = `${this.baseURL}/api/comments/${commentId}`;
+      const response = await http.createHttp().request(url, this.createRequestOptions(http.RequestMethod.DELETE));
+      return response.responseCode === 200;
+    } catch (e) { return false; }
   }
 }
 

@@ -169,12 +169,12 @@ export struct SettingsPage {
   @State userName: string = '';
   @State userRole: string = '';
   @State isAdmin: boolean = false;
-  @State showLogoutDialog: boolean = false;
+  @State showLogoutConfirm: boolean = false; // 布尔状态，控制Sheet显示
   @State showLanguageDialog: boolean = false;
   @State pendingLanguage: AppLanguage = AppLanguage.SYSTEM;
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
   
-  private settingsManager = SettingsManager.getInstance();
+  private settingsManager: SettingsManager = SettingsManager.getInstance();
   private readonly cacheTTLOptions: number[] = [1, 3, 7, 14, 30];
   
   // 获取当前主题色
@@ -263,16 +263,14 @@ export struct SettingsPage {
     .width('100%')
     .height('100%')
     .backgroundColor(this.getColors().background)
-    .bindSheet(this.showLogoutDialog, this.buildLogoutDialog(), {
-      height: 200,
-      backgroundColor: this.getColors().cardBackground,
+    .bindSheet($$this.showLogoutConfirm, this.buildLogoutDialog(), {
+      detents: [SheetSize.MEDIUM],
       onDisappear: () => {
-        this.showLogoutDialog = false;
+        this.showLogoutConfirm = false;
       }
     })
     .bindSheet(this.showLanguageDialog, this.buildLanguageDialog(), {
-      height: 300,
-      backgroundColor: this.getColors().cardBackground,
+      detents: [SheetSize.MEDIUM, SheetSize.LARGE],
       onDisappear: () => {
         this.showLanguageDialog = false;
       }
@@ -303,7 +301,7 @@ export struct SettingsPage {
           .backgroundColor('#F5F5F5')
           .fontColor('#333333')
           .onClick(() => {
-            this.showLogoutDialog = false;
+            this.showLogoutConfirm = false;
           })
         
         Button('退出')
@@ -311,7 +309,7 @@ export struct SettingsPage {
           .backgroundColor('#FF3B30')
           .fontColor(Color.White)
           .onClick(async () => {
-            this.showLogoutDialog = false;
+            this.showLogoutConfirm = false;
             try {
               await APIService.getInstance().logout();
               promptAction.showToast({ message: '已退出登录' });
@@ -665,7 +663,7 @@ export struct SettingsPage {
         .height(56)
         .padding({ left: 16, right: 16 })
         .onClick(() => {
-          this.showLogoutDialog = true;
+          this.showLogoutConfirm = true;
         })
       }
       .width('100%')
