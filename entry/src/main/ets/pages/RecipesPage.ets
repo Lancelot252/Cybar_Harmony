@@ -258,21 +258,39 @@ export struct RecipesPage {
   // 酒精度切换
   private onAbvRangeChange(rangeId: string): void {
     this.selectedAbvRange = rangeId;
+    // 👇 只应用前端过滤,不重新请求
     this.applyFilters();
   }
-  
+
   // 排序切换
   private onSortChange(sortId: string): void {
     this.sortType = sortId;
-    setTimeout(() => {
-    this.fetchRecipes(true);
-  }, 50);
+    // 👇 移除 fetchRecipes,改为前端排序
+    const filtered = this.filterRecipes(this.allRecipes);
+    const sorted = this.sortRecipes(filtered, sortId);
+    this.recipesDataSource.setData(sorted);
   }
   
+  // 👇 新增前端排序方法
+  private sortRecipes(recipes: Recipe[], sortType: string): Recipe[] {
+    const sorted = [...recipes];
+    switch (sortType) {
+      case 'likes':
+        return sorted.sort((a, b) => b.likeCount - a.likeCount);
+      case 'favorites':
+        return sorted.sort((a, b) => b.favoriteCount - a.favoriteCount);
+      case 'name':
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+      default: // 'default' - 保持原始顺序
+        return sorted;
+    }
+  }
+
   // 应用筛选
   private applyFilters(): void {
     const filtered = this.filterRecipes(this.allRecipes);
-    this.recipesDataSource.setData(filtered);
+    const sorted = this.sortRecipes(filtered, this.sortType); // 👈 应用排序
+    this.recipesDataSource.setData(sorted);
   }
   
   // 重置筛选
@@ -319,7 +337,7 @@ export struct RecipesPage {
           Text(category.name)
             .fontSize(this.selectedCategory === category.id ? 16 : 14)
             .fontColor(this.selectedCategory === category.id 
-              ? this.getColors().textPrimary
+              ? '#1E90FF'
               : this.getColors().textTertiary)
             .fontWeight(this.selectedCategory === category.id 
               ? FontWeight.Bold 
@@ -368,7 +386,7 @@ export struct RecipesPage {
                   : this.getColors().textPrimary)
                 .padding({ left: 12, right: 12, top: 6, bottom: 6 })
                 .backgroundColor(this.selectedAbvRange === range.id
-                  ? '#FF6B00'
+                  ? '#1E90FF'
                   : (this.isDarkMode ? '#2A2A2A' : '#F5F5F5'))
                 .borderRadius(4)
                 .onClick(() => this.onAbvRangeChange(range.id))
@@ -394,7 +412,7 @@ export struct RecipesPage {
                   : this.getColors().textPrimary)
                 .padding({ left: 12, right: 12, top: 6, bottom: 6 })
                 .backgroundColor(this.sortType === option.id
-                  ? '#FF6B00'
+                  ? '#1E90FF'
                   : (this.isDarkMode ? '#2A2A2A' : '#F5F5F5'))
                 .borderRadius(4)
                 .onClick(() => this.onSortChange(option.id))
@@ -416,7 +434,7 @@ export struct RecipesPage {
           Button('确定')
             .fontSize(14)
             .fontColor('#FFFFFF')
-            .backgroundColor('#FF6B00')
+            .backgroundColor('#1E90FF')
             .layoutWeight(1)
             .onClick(() => this.showFilterPanel = false)
         }
@@ -448,7 +466,10 @@ export struct RecipesPage {
             .fontSize(22)
             .fontColor([this.getColors().textPrimary])
             .margin({ right: 12 })
-            .onClick(() => this.showFilterPanel = true)
+            .onClick(() => {
+              this.selectedCategory = 'all';
+              this.showFilterPanel = true;
+              })
           
           SymbolGlyph($r('sys.symbol.magnifyingglass'))
             .fontSize(22)
@@ -621,6 +642,8 @@ struct RecipeCard {
               .fontColor(this.getColors().textSecondary)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1) // 👈 保留权重
+              .constraintSize({ maxWidth: 80 }) // 👈 新增:限制最大宽度
           }
           .layoutWeight(1)
           .alignItems(VerticalAlign.Center)
