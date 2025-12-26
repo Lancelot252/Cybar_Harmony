@@ -52,6 +52,7 @@ interface RecipeDetail {
   likeCount: number;
   favoriteCount: number;
   ingredients: Array<Ingredient>;
+  image?: string; // 配方图片路径
 }
 
 @Entry
@@ -709,6 +710,16 @@ struct RecipeDetailPage {
         .fontColor('#1A1A1A')
         .width('100%')
         .lineHeight(38)
+        
+        // 显示配方图片
+        if (this.recipe.image && this.recipe.image.length > 0) {
+          Image(APIService.getInstance().baseUrl + this.recipe.image)
+            .width('100%')
+            .height(200)
+            .objectFit(ImageFit.Cover)
+            .borderRadius(12)
+            .margin({ top: 8, bottom: 8 })
+        }
       
       Row({ space: 12 }) {
         Text(`👤 ${this.recipe.createdBy}`)

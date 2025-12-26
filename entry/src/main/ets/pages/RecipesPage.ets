@@ -1,6 +1,6 @@
 // RecipesPage.ets - 配方列表页面
 
-import { apiService } from '../services/APIService';
+import APIService, { apiService } from '../services/APIService';
 import { Recipe, RecipesResponse, Ingredient } from '../models/Recipe';
 import { router } from '@kit.ArkUI';
 import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
@@ -525,7 +525,7 @@ struct RecipeCard {
     }
     
     if (this.recipe.image.startsWith('/')) {
-      const fullUrl = 'http://47.101.11.98:8080' + this.recipe.image;
+      const fullUrl = APIService.getInstance().baseUrl + this.recipe.image;
       return fullUrl;
     }
     
