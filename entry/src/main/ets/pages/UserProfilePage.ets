@@ -880,13 +880,21 @@ export struct UserProfilePage {
     }
   }
   
+  // 获取配方图片源
+  private getRecipeImageSource(recipe: Recipe): string | Resource {
+    if (recipe.image && recipe.image.length > 0 && recipe.image.startsWith('/')) {
+      return APIService.getInstance().baseUrl + recipe.image;
+    }
+    return $r('app.media.wine');
+  }
+
   // 配方卡片
   @Builder
   buildRecipeCard(recipe: Recipe) {
     Column() {
       // 配方图片
       Stack() {
-        Image($r('app.media.wine'))
+        Image(this.getRecipeImageSource(recipe))
           .width('100%')
           .height(140)
           .objectFit(ImageFit.Cover)

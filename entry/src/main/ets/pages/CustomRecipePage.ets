@@ -6,6 +6,8 @@ import APIService, { AIGeneratedRecipe, AIIngredient } from '../services/APIServ
 import { APIIngredient } from '../models/Recipe';
 import promptAction from '@ohos.promptAction';
 import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { common } from '@kit.AbilityKit';
 
 // 配料项接口
 interface IngredientItem {
@@ -45,6 +47,7 @@ interface RecipeIngredientData {
 // 保存配方的请求数据接口
 interface CreateRecipeData {
   name: string;
+  description: string;
   instructions: string;
   estimatedAbv: number;
   ingredients: RecipeIngredientData[];
@@ -100,6 +103,10 @@ export struct CustomRecipePage {
   // 保存状态
   @State isSaving: boolean = false;
   @State saveMessage: string = '';
+  
+  // 图片上传
+  @State cocktailImageUri: string = '';
+  @State isSelectingImage: boolean = false;
   
   // AI智能调酒师状态
   @State showAISection: boolean = true;
@@ -167,6 +174,33 @@ export struct CustomRecipePage {
       this.ingredientLoadError = '加载配料失败';
     } finally {
       this.loadingIngredients = false;
+    }
+  }
+  
+  /**
+   * 选择图片
+   */
+  private async selectImage() {
+    try {
+      this.isSelectingImage = true;
+      
+      // 使用 PhotoViewPicker 选择图片
+      const photoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
+      photoSelectOptions.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+      photoSelectOptions.maxSelectNumber = 1;
+      
+      const photoPicker = new photoAccessHelper.PhotoViewPicker();
+      const result = await photoPicker.select(photoSelectOptions);
+      
+      if (result && result.photoUris && result.photoUris.length > 0) {
+        this.cocktailImageUri = result.photoUris[0];
+        console.info('[CustomRecipe] 选择了图片:', this.cocktailImageUri);
+      }
+    } catch (error) {
+      console.error('[CustomRecipe] 选择图片失败:', error);
+      promptAction.showToast({ message: '选择图片失败' });
+    } finally {
+      this.isSelectingImage = false;
     }
   }
   
@@ -485,17 +519,29 @@ export struct CustomRecipePage {
       // 调用API保存
       const recipeData: CreateRecipeData = {
         name: this.cocktailName,
+        description: this.cocktailDescription,
         instructions: instructions,
         estimatedAbv: this.estimatedAbv,
         ingredients: ingredients
       };
-      const result = await apiService.createRecipe(recipeData);
+      
+      // 根据是否有图片选择不同的API
+      let result: object;
+      if (this.cocktailImageUri.length > 0) {
+        // 有图片，使用带图片上传的API
+        const context = getContext(this) as common.UIAbilityContext;
+        result = await apiService.createRecipeWithImage(recipeData, this.cocktailImageUri, context);
+      } else {
+        // 无图片，使用普通API
+        result = await apiService.createRecipe(recipeData);
+      }
       
       promptAction.showToast({ message: '配方保存成功!' });
       
       // 清空表单
       this.cocktailName = '';
       this.cocktailDescription = '';
+      this.cocktailImageUri = '';
       this.selectedIngredients = [];
       this.steps = [{ id: '1', index: 1, text: '' }];
       this.estimatedAbv = 0;
@@ -799,6 +845,61 @@ export struct CustomRecipePage {
             .fontColor(this.getColors().textPrimary)
             .borderRadius(8)
             .height(80)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+        
+        // 图片上传
+        Column({ space: 6 }) {
+          Text('上传鸡尾酒照片(可选)')
+            .fontSize(14)
+            .fontColor(this.getColors().textSecondary)
+          
+          if (this.cocktailImageUri.length > 0) {
+            // 已选择图片 - 显示预览
+            Stack({ alignContent: Alignment.TopEnd }) {
+              Image(this.cocktailImageUri)
+                .width('100%')
+                .height(180)
+                .borderRadius(8)
+                .objectFit(ImageFit.Cover)
+              
+              // 删除按钮
+              Button() {
+                Text('✕')
+                  .fontSize(16)
+                  .fontColor(Color.White)
+              }
+              .width(28)
+              .height(28)
+              .borderRadius(14)
+              .backgroundColor('rgba(0, 0, 0, 0.5)')
+              .margin({ top: 8, right: 8 })
+              .onClick(() => {
+                this.cocktailImageUri = '';
+              })
+            }
+            .width('100%')
+          } else {
+            // 未选择图片 - 显示上传按钮
+            Button() {
+              Column({ space: 8 }) {
+                Text('📷')
+                  .fontSize(32)
+                Text('点击选择图片')
+                  .fontSize(14)
+                  .fontColor(this.getColors().textSecondary)
+              }
+            }
+            .width('100%')
+            .height(120)
+            .backgroundColor(this.getColors().inputBackground)
+            .borderRadius(8)
+            .type(ButtonType.Normal)
+            .onClick(() => {
+              this.selectImage();
+            })
+          }
         }
         .alignItems(HorizontalAlign.Start)
         .width('100%')

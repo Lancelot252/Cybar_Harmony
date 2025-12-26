@@ -5,6 +5,10 @@ import { http } from '@kit.NetworkKit';
 import { common } from '@kit.AbilityKit';
 import preferences from '@ohos.data.preferences';
 import { RecipesResponse, RecommendationsResponse } from '../models/Recipe';
+import fs from '@ohos.file.fs';
+import { util } from '@kit.ArkTS';
+import { request } from '@kit.BasicServicesKit';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
 
 
 // 自定义错误类
@@ -157,11 +161,11 @@ interface LocalRecipesResponse {
  */
 
 // ⚠️ 开发环境 - 本地调试（使用时取消注释这行，注释掉生产环境）
-// const BASE_URL: string = 'http://172.26.19.215:8080';
+const BASE_URL: string = 'http://192.168.43.96:8080';
 // const BASE_URL: string = 'http://10.0.2.2:80';
 // const BASE_URL: string = 'http://192.168.43.231:8080';
 // ⚠️ 生产环境 - 远程服务器（发布时取消注释这行，注释掉开发环境）
-const BASE_URL: string = 'http://47.101.11.98:8080';
+// const BASE_URL: string = 'http://47.101.11.98:8080';
 
 /**
  * API服务单例类
@@ -196,6 +200,11 @@ export default class APIService {
 
   public get cachedLogin(): LoginCache | undefined {
     return this.loginCache;
+  }
+
+  // 公开 baseURL 用于构建图片URL
+  public get baseUrl(): string {
+    return this.baseURL;
   }
   
   private constructor() {
@@ -1481,7 +1490,7 @@ export default class APIService {
       const url = `${this.baseURL}/api/recipes`;
       const requestOptions = this.createRequestOptions(
         http.RequestMethod.POST,
-        undefined,
+        { contentType: 'application/json' },
         recipeData
       );
       const response = await httpRequest.request(url, requestOptions);
@@ -1500,6 +1509,152 @@ export default class APIService {
       throw new APIError('创建配方失败', 'NETWORK_ERROR');
     } finally {
       httpRequest.destroy();
+    }
+  }
+  
+  /**
+   * 创建配方（带图片上传）
+   * 使用 request.uploadFile API 上传图片
+   */
+  public async createRecipeWithImage(
+    recipeData: object,
+    imageUri?: string,
+    context?: common.UIAbilityContext
+  ): Promise<object> {
+    if (!this.isLoggedIn) {
+      throw new APIError('请先登录', 'AUTH_REQUIRED');
+    }
+
+    // 如果没有图片，使用普通API
+    if (!imageUri || imageUri.length === 0) {
+      console.info('[APIService] 无图片，使用普通API创建配方');
+      return this.createRecipe(recipeData);
+    }
+
+    if (!context) {
+      console.error('[APIService] 需要context来上传图片');
+      return this.createRecipe(recipeData);
+    }
+
+    try {
+      const url = `${this.baseURL}/api/custom/cocktails`;
+      console.info('[APIService] 创建配方(带图片) - URL:', url);
+      console.info('[APIService] 原始图片URI:', imageUri);
+
+      // 提取数据字段
+      const name = Reflect.get(recipeData, 'name') as string;
+      const description = Reflect.get(recipeData, 'description') as string;
+      const instructions = Reflect.get(recipeData, 'instructions') as string;
+      const estimatedAbv = Reflect.get(recipeData, 'estimatedAbv') as number;
+      const ingredients = Reflect.get(recipeData, 'ingredients') as Array<object>;
+
+      // 将 instructions 转为 steps 数组
+      const steps = instructions ? instructions.split('\n').filter((s: string) => s.trim().length > 0) : [];
+
+      // 复制图片到应用缓存目录
+      const cacheDir = context.cacheDir;
+      const fileName = `cocktail_${Date.now()}.jpg`;
+      const destPath = `${cacheDir}/${fileName}`;
+      
+      console.info('[APIService] 缓存目录:', cacheDir);
+      console.info('[APIService] 目标路径:', destPath);
+
+      // 从媒体库URI复制文件到缓存
+      try {
+        const srcFile = fs.openSync(imageUri, fs.OpenMode.READ_ONLY);
+        const destFile = fs.openSync(destPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
+        
+        // 获取文件大小并读取
+        const stat = fs.statSync(srcFile.fd);
+        const buffer = new ArrayBuffer(stat.size);
+        fs.readSync(srcFile.fd, buffer);
+        fs.writeSync(destFile.fd, buffer);
+        
+        fs.closeSync(srcFile);
+        fs.closeSync(destFile);
+        console.info('[APIService] 图片复制成功, 大小:', stat.size);
+      } catch (copyError) {
+        console.error('[APIService] 复制图片失败:', copyError);
+        // 回退到普通API
+        return this.createRecipe(recipeData);
+      }
+
+      // 使用 request.uploadFile 上传
+      const uploadConfig: request.UploadConfig = {
+        url: url,
+        header: {
+          'Cookie': this.authCookie
+        },
+        method: 'POST',
+        files: [
+          {
+            filename: fileName,
+            name: 'image',
+            uri: `internal://cache/${fileName}`,
+            type: 'image/jpeg'
+          }
+        ],
+        data: [
+          { name: 'name', value: name || '' },
+          { name: 'description', value: description || '' },
+          { name: 'estimatedAbv', value: String(estimatedAbv || 0) },
+          { name: 'ingredients', value: JSON.stringify(ingredients || []) },
+          { name: 'steps', value: JSON.stringify(steps) }
+        ]
+      };
+
+      console.info('[APIService] 开始上传文件...');
+      
+      const resultObj: APIResponse<string> = { success: true, message: '鸡尾酒创建成功' };
+      
+      return new Promise((resolve, reject) => {
+        request.uploadFile(context, uploadConfig)
+          .then((uploadTask: request.UploadTask) => {
+            console.info('[APIService] 上传任务创建成功');
+            
+            uploadTask.on('complete', (taskStates: Array<request.TaskState>) => {
+              console.info('[APIService] 上传完成:', JSON.stringify(taskStates));
+              // 清理缓存文件
+              try {
+                fs.unlinkSync(destPath);
+              } catch (e) {
+                console.warn('[APIService] 清理缓存文件失败:', e);
+              }
+              resolve(resultObj);
+            });
+            
+            uploadTask.on('fail', (taskStates: Array<request.TaskState>) => {
+              console.error('[APIService] 上传失败:', JSON.stringify(taskStates));
+              // 清理缓存文件
+              try {
+                fs.unlinkSync(destPath);
+              } catch (e) {
+                console.warn('[APIService] 清理缓存文件失败:', e);
+              }
+              reject(new APIError('上传失败', 'UPLOAD_FAILED'));
+            });
+
+            uploadTask.on('progress', (uploadedSize: number, totalSize: number) => {
+              console.info(`[APIService] 上传进度: ${uploadedSize}/${totalSize}`);
+            });
+          })
+          .catch((err: Error) => {
+            console.error('[APIService] 创建上传任务失败:', err);
+            // 清理缓存文件
+            try {
+              fs.unlinkSync(destPath);
+            } catch (e) {
+              console.warn('[APIService] 清理缓存文件失败:', e);
+            }
+            reject(new APIError('创建上传任务失败', 'UPLOAD_TASK_ERROR'));
+          });
+      });
+    } catch (error) {
+      console.error('[APIService] 创建配方(带图片)失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('创建配方失败', 'NETWORK_ERROR');
     }
   }
   
