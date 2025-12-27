@@ -978,6 +978,14 @@ export struct UserProfilePage {
     }
   }
   
+  // 获取配方图片源
+  private getRecipeImageSource(recipe: Recipe): string | Resource {
+    if (recipe.image && recipe.image.length > 0 && recipe.image.startsWith('/')) {
+      return APIService.getInstance().baseUrl + recipe.image;
+    }
+    return $r('app.media.wine');
+  }
+
   // 配方卡片
   @Builder
   buildRecipeCard(recipe: Recipe) {

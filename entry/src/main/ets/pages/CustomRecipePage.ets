@@ -48,6 +48,7 @@ interface RecipeIngredientData {
 // 保存配方的请求数据接口
 interface CreateRecipeData {
   name: string;
+  description: string;
   instructions: string;
   estimatedAbv: number;
   ingredients: RecipeIngredientData[];
@@ -108,6 +109,10 @@ export struct CustomRecipePage {
   // 保存状态
   @State isSaving: boolean = false;
   @State saveMessage: string = '';
+  
+  // 图片上传
+  @State cocktailImageUri: string = '';
+  @State isSelectingImage: boolean = false;
   
   // AI智能调酒师状态
   @State showAISection: boolean = true;
@@ -234,6 +239,33 @@ export struct CustomRecipePage {
       this.ingredientLoadError = '加载配料失败';
     } finally {
       this.loadingIngredients = false;
+    }
+  }
+  
+  /**
+   * 选择图片
+   */
+  private async selectImage() {
+    try {
+      this.isSelectingImage = true;
+      
+      // 使用 PhotoViewPicker 选择图片
+      const photoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
+      photoSelectOptions.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+      photoSelectOptions.maxSelectNumber = 1;
+      
+      const photoPicker = new photoAccessHelper.PhotoViewPicker();
+      const result = await photoPicker.select(photoSelectOptions);
+      
+      if (result && result.photoUris && result.photoUris.length > 0) {
+        this.cocktailImageUri = result.photoUris[0];
+        console.info('[CustomRecipe] 选择了图片:', this.cocktailImageUri);
+      }
+    } catch (error) {
+      console.error('[CustomRecipe] 选择图片失败:', error);
+      promptAction.showToast({ message: '选择图片失败' });
+    } finally {
+      this.isSelectingImage = false;
     }
   }
   
@@ -561,6 +593,7 @@ export struct CustomRecipePage {
       // 调用API保存（带图片）
       const recipeData: CreateRecipeData = {
         name: this.cocktailName,
+        description: this.cocktailDescription,
         instructions: instructions,
         estimatedAbv: this.estimatedAbv,
         ingredients: ingredients,
@@ -590,6 +623,7 @@ export struct CustomRecipePage {
       this.removeCocktailImage(); // 清理图片
       this.cocktailName = '';
       this.cocktailDescription = '';
+      this.cocktailImageUri = '';
       this.selectedIngredients = [];
       this.steps = [{ id: Date.now().toString(), index: 1, text: '' }];
       this.estimatedAbv = 0;

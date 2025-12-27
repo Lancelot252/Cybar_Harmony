@@ -45,6 +45,7 @@ interface InteractionStatus {
 interface RecipeDetail {
   id: string;
   name: string;
+  description: string;
   createdBy: string;
   instructions: string;
   estimatedAbv: number;
@@ -170,6 +171,7 @@ struct RecipeDetailPage {
       this.recipe = {
         id: Reflect.get(detail, 'id') as string,
         name: Reflect.get(detail, 'name') as string,
+        description: (Reflect.get(detail, 'description') as string) || '',
         createdBy: Reflect.get(detail, 'createdBy') as string,
         instructions: Reflect.get(detail, 'instructions') as string,
         estimatedAbv: this.parseNumber(estimatedAbvValue),
