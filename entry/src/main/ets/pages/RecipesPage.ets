@@ -99,10 +99,12 @@ class BasicDataSource implements IDataSource {
 export struct RecipesPage {
   @State recipesDataSource: BasicDataSource = new BasicDataSource();
   @State isLoading: boolean = false;
+  @State isRefreshing: boolean = false;
   @State currentPage: number = 1;
   @State totalPages: number = 1;
   @State errorMessage: string = '';
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
+  @StorageLink('recipesRefreshTrigger') @Watch('onRefreshTrigger') refreshTrigger: number = 0;
   
   // 筛选相关状态
   @State selectedCategory: string = 'all';     // 当前选中的基酒分类
@@ -142,6 +144,12 @@ export struct RecipesPage {
   // 获取当前主题色
   private getColors(): ThemeColors {
     return this.isDarkMode ? DarkTheme : LightTheme;
+  }
+  
+  // 刷新触发器回调
+  onRefreshTrigger() {
+    console.info('[RecipesPage] 检测到刷新触发器变化，刷新列表');
+    this.refresh();
   }
 
   aboutToAppear(): void {
@@ -204,6 +212,22 @@ export struct RecipesPage {
 
   private refresh(): void {
     this.fetchRecipes(true);
+  }
+
+  /**
+   * 处理下拉刷新事件
+   * 这个方法在用户完成下拉动作时调用
+   */
+  private async handlePullRefresh(): Promise<void> {
+    try {
+      console.info('[RecipesPage] 开始下拉刷新');
+      await this.fetchRecipes(true);
+    } catch (error) {
+      console.error('[RecipesPage] 下拉刷新失败:', error);
+    } finally {
+      // 下拉刷新完成后，设置 isRefreshing 为 false 以关闭刷新动画
+      this.isRefreshing = false;
+    }
   }
   
   // 前端过滤逻辑
@@ -468,25 +492,34 @@ export struct RecipesPage {
                Text('暂无内容').onClick(() => this.refresh())
            }.justifyContent(FlexAlign.Center).height('100%')
         } else {
-          WaterFlow({ footer: () => { this.footer() } }) {
-            LazyForEach(this.recipesDataSource, (recipe: Recipe) => {
-              FlowItem() {
-                RecipeCard({
-                  recipe: recipe,
-                  onTap: () => { this.openRecipeDetail(recipe.id) }
-                })
-              }
-              .width('100%')
-            }, (recipe: Recipe) => recipe.id)
+          Refresh({ refreshing: $$this.isRefreshing, offset: 80, friction: 62 }) {
+            WaterFlow({ footer: () => { this.footer() } }) {
+              LazyForEach(this.recipesDataSource, (recipe: Recipe) => {
+                FlowItem() {
+                  RecipeCard({
+                    recipe: recipe,
+                    onTap: () => { this.openRecipeDetail(recipe.id) }
+                  })
+                }
+                .width('100%')
+              }, (recipe: Recipe) => recipe.id)
+            }
+            .columnsTemplate("1fr 1fr")
+            .columnsGap(10)
+            .rowsGap(10)
+            .padding({ left: 10, right: 10, top: 10, bottom: 10 })
+            .width('100%')
+            .layoutWeight(1)
+            .onReachEnd(() => {
+                this.loadMore();
+            })
           }
-          .columnsTemplate("1fr 1fr")
-          .columnsGap(10)
-          .rowsGap(10)
-          .padding({ left: 10, right: 10, top: 10, bottom: 10 })
-          .width('100%')
-          .layoutWeight(1)
-          .onReachEnd(() => {
-              this.loadMore();
+          .onStateChange((refreshStatus: RefreshStatus) => {
+            console.info('[RecipesPage] 下拉刷新状态变化:', refreshStatus);
+          })
+          .onRefreshing(() => {
+            console.info('[RecipesPage] 触发下拉刷新');
+            this.handlePullRefresh();
           })
         }
       }
@@ -534,16 +567,16 @@ struct RecipeCard {
 
   /**
    * 获取作者头像URL
-   * 尝试构造本地头像路径，失败则用默认头像
+   * 优先使用后端返回的 creatorAvatar，失败则用默认头像
    */
   private getAvatarSource(): string | Resource {
     if (this.avatarLoadError) {
       return apiService.getFullImageUrl(this.DEFAULT_AVATAR_PATH);
     }
     
-    // 根据 createdBy 用户名构造头像路径
-    if (this.recipe.createdBy) {
-      const avatarPath = `/uploads/avatars/${this.recipe.createdBy}.jpg`;
+    // 优先使用后端返回的头像路径
+    const avatarPath = Reflect.get(this.recipe, 'creatorAvatar') as string;
+    if (avatarPath && avatarPath.length > 0) {
       return apiService.getFullImageUrl(avatarPath);
     }
     

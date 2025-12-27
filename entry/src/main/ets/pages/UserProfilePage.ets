@@ -314,7 +314,8 @@ export struct UserProfilePage {
       estimatedAbv: this.parseNumber(item['estimatedAbv'] || item['estimated_abv']),
       likeCount: this.parseNumber(item['likeCount'] || item['like_count']),
       favoriteCount: this.parseNumber(item['favoriteCount'] || item['favorite_count']),
-      ingredients: (item['ingredients'] || '') as string
+      ingredients: (item['ingredients'] || '') as string,
+      image: (item['image'] || '') as string  // 解析图片路径
     };
   }
   
@@ -718,11 +719,9 @@ export struct UserProfilePage {
             .objectFit(ImageFit.Cover)
             .backgroundColor(this.getColors().divider)
             .border({ width: 1, color: this.getColors().divider })
+            .alt(APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH))
             .onError(() => {
-              const fallback = APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH);
-              if (this.avatarUrl !== fallback) {
-                this.avatarUrl = fallback;
-              }
+              // 头像加载失败，自动使用 .alt() 设置的默认头像
             })
           
           if (this.userRole === 'admin') {
@@ -985,11 +984,17 @@ export struct UserProfilePage {
     Column() {
       // 配方图片
       Stack() {
-        Image($r('app.media.wine'))
+        Image(recipe.image && recipe.image.length > 0 ? 
+          APIService.getInstance().getFullImageUrl(recipe.image) : 
+          $r('app.media.wine'))
           .width('100%')
           .height(140)
           .objectFit(ImageFit.Cover)
           .borderRadius({ topLeft: 8, topRight: 8 })
+          .alt($r('app.media.wine'))
+          .onError(() => {
+            // 图片加载失败，自动使用 .alt() 设置的默认图片
+          })
         
         // ABV 标签
         if (recipe.estimatedAbv > 0) {
@@ -1035,6 +1040,29 @@ export struct UserProfilePage {
               .fontSize(11)
               .fontColor(this.getColors().textTertiary)
           }
+        }
+
+        // 我的创作下显示“编辑”入口
+        if (this.currentTab === ProfileTab.RECIPES) {
+          Row() {
+            Blank()
+            Button('编辑')
+              .type(ButtonType.Capsule)
+              .height(26)
+              .fontSize(12)
+              .backgroundColor(this.getColors().secondaryBackground)
+              .fontColor(this.getColors().textPrimary)
+              .padding({ left: 12, right: 12 })
+              .onClick(() => {
+                router.pushUrl({
+                  url: 'pages/EditRecipePage',
+                  params: { recipeId: recipe.id }
+                }).catch((error: Error) => {
+                  console.error('[UserProfilePage] 跳转编辑页面失败:', error);
+                });
+              })
+          }
+          .width('100%')
         }
       }
       .width('100%')
@@ -1129,17 +1157,13 @@ export struct UserProfilePage {
             Image(this.avatarUrl)
               .width(80)
               .height(80)
-              .borderRadius(40) // 圆形
+              .borderRadius(40)
               .objectFit(ImageFit.Cover)
               .backgroundColor(this.getColors().divider)
               .border({ width: 1, color: this.getColors().divider })
-              // 错误处理：如果加载失败（例如404），强制使用默认头像
+              .alt(APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH))
               .onError(() => {
-                console.warn('[UserProfilePage] 头像加载失败，切换默认头像');
-                const defaultUrl = APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH);
-                if (this.avatarUrl !== defaultUrl) {
-                  this.avatarUrl = defaultUrl;
-                }
+                // 头像加载失败，自动使用 .alt() 设置的默认头像
               })
             
             // 编辑图标
@@ -1260,8 +1284,8 @@ export struct UserProfilePage {
       return;
     }
     
-    if (this.editBio.length > 100) {
-      promptAction.showToast({ message: '简介不能超过100个字符' });
+    if (this.editBio.length > 50) {
+      promptAction.showToast({ message: '简介不能超过50个字符' });
       return;
     }
     

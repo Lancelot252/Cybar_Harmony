@@ -55,8 +55,13 @@ interface CreateRecipeData {
   steps?: string[];
 }
 
+interface RouterParams {
+  recipeId: string;
+}
+
+@Entry
 @Component
-export struct CustomRecipePage {
+export struct EditRecipePage {
   // 深色模式支持
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
   
@@ -70,6 +75,8 @@ export struct CustomRecipePage {
   @State selectedImagePath: string = ''; // 选中的图片沙箱路径
   @State selectedImageFileName: string = ''; // 图片文件名（用于 internal:// 路径）
   @State imagePreviewUrl: string = ''; // 图片预览URL
+  @State originalImageUrl: string = '';
+  @State recipeId: string = '';
   
   // 分类和原料
   private categoryOrder: string[] = [
@@ -116,6 +123,10 @@ export struct CustomRecipePage {
   @State aiAlcoholStrength: string = '';
   @State isGeneratingAI: boolean = false;
   @State aiError: string = '';
+
+  // 加载状态
+  @State isLoadingRecipe: boolean = false;
+  @State recipeLoadError: string = '';
   
   // 场合选项
   private occasionOptions: string[] = ['派对聚会', '浪漫约会', '商务社交', '独自放松', '节日庆祝', '夏日消暑', '冬日温暖'];
@@ -123,7 +134,43 @@ export struct CustomRecipePage {
   private strengthOptions: string[] = ['无酒精', '低度(5%以下)', '中度(5-15%)', '中高度(15-25%)', '高度(25%以上)'];
   
   aboutToAppear() {
-    this.loadIngredients();
+    const params: ESObject = router.getParams() as ESObject;
+    const recipeIdValue: string = Reflect.get(params, 'recipeId') as string;
+    if (params && recipeIdValue) {
+      this.recipeId = recipeIdValue;
+      this.initializeEditPage();
+    } else {
+      this.recipeLoadError = '缺少配方ID，无法加载';
+    }
+  }
+
+  private parseNumber(value: number | string | ESObject): number {
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    const parsed = parseFloat(String(value));
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
+  private async initializeEditPage() {
+    this.isLoadingRecipe = true;
+    this.recipeLoadError = '';
+
+    try {
+      const apiService = APIService.getInstance();
+      await this.loadIngredients();
+      const detail: object = await apiService.fetchRecipeDetail(this.recipeId);
+      this.applyRecipeDetail(detail as ESObject);
+    } catch (error) {
+      console.error('[EditRecipePage] 初始化失败:', error);
+      this.recipeLoadError = '加载配方失败，请稍后重试';
+    } finally {
+      this.isLoadingRecipe = false;
+    }
   }
   
   /**
@@ -146,7 +193,9 @@ export struct CustomRecipePage {
       
       // 拷贝到沙箱
       const context = getContext(this) as common.UIAbilityContext;
-      const fileName = `cocktail_temp_${Date.now()}.jpg`;
+      const fileName = this.recipeId && this.recipeId.length > 0
+        ? `cocktail_${this.recipeId}.jpg`
+        : `cocktail_temp_${Date.now()}.jpg`;
       const cacheDir = context.cacheDir;
       const targetPath = `${cacheDir}/${fileName}`;
       
@@ -157,6 +206,7 @@ export struct CustomRecipePage {
       this.selectedImagePath = targetPath;
       this.selectedImageFileName = fileName;
       this.imagePreviewUrl = selectedUri; // 用原始URI做预览
+      this.originalImageUrl = '';
       
       console.info('[CustomRecipe] 图片已拷贝到沙箱:', targetPath);
       console.info('[CustomRecipe] 文件名:', fileName);
@@ -183,6 +233,7 @@ export struct CustomRecipePage {
     this.selectedImagePath = '';
     this.selectedImageFileName = '';
     this.imagePreviewUrl = '';
+    this.originalImageUrl = '';
   }
   
   /**
@@ -234,6 +285,100 @@ export struct CustomRecipePage {
       this.ingredientLoadError = '加载配料失败';
     } finally {
       this.loadingIngredients = false;
+    }
+  }
+
+  private parseSteps(detailSteps: ESObject[] | undefined, instructions: string | undefined): StepEntry[] {
+    const parsed: StepEntry[] = [];
+    const timestamp = Date.now();
+
+    if (detailSteps && Array.isArray(detailSteps)) {
+      detailSteps.forEach((item: ESObject, index: number) => {
+        if (typeof item === 'string') {
+          const text = (item as string).trim();
+          if (text.length > 0) {
+            parsed.push({ id: `step_${index}_${timestamp}`, index: index + 1, text: text });
+          }
+        } else {
+          const text = Reflect.get(item, 'text') as string;
+          if (text && text.length > 0) {
+            parsed.push({ id: `step_${index}_${timestamp}`, index: index + 1, text: text });
+          }
+        }
+      });
+    }
+
+    if (parsed.length === 0 && instructions && instructions.length > 0) {
+      const lines = instructions.split(/\r?\n/);
+      lines.forEach((line: string, index: number) => {
+        const normalized = line.replace(/^\d+[\.\s]*/, '').trim();
+        if (normalized.length > 0) {
+          parsed.push({ id: `inst_${index}_${timestamp}`, index: parsed.length + 1, text: normalized });
+        }
+      });
+    }
+
+    return parsed;
+  }
+
+  private applyRecipeDetail(detail: ESObject) {
+    try {
+      this.cocktailName = Reflect.get(detail, 'name') as string || '';
+      this.cocktailDescription = Reflect.get(detail, 'description') as string || '';
+
+      const estimatedAbvValue: ESObject | string | number = Reflect.get(detail, 'estimatedAbv');
+      this.estimatedAbv = this.parseNumber(estimatedAbvValue);
+
+      const imageUrl: string = Reflect.get(detail, 'image') as string;
+      if (imageUrl && imageUrl.length > 0) {
+        // 若为相对路径，拼接服务器地址（读取 APIService 基址）
+        const baseURL: string = APIService.getInstance().getBaseURL();
+        const absoluteUrl: string = imageUrl.startsWith('http') ? imageUrl : (imageUrl.startsWith('/') ? `${baseURL}${imageUrl}` : `${baseURL}/${imageUrl}`);
+        this.imagePreviewUrl = absoluteUrl;
+        this.originalImageUrl = imageUrl;
+      } else {
+        this.imagePreviewUrl = '';
+        this.originalImageUrl = '';
+      }
+
+      const detailIngredients: ESObject[] = Reflect.get(detail, 'ingredients') as ESObject[];
+      if (detailIngredients && Array.isArray(detailIngredients)) {
+        const mapped: SelectedIngredient[] = [];
+        detailIngredients.forEach((ing: ESObject, index: number) => {
+          const ingId = Reflect.get(ing, 'id') as string;
+          const ingName = Reflect.get(ing, 'name') as string;
+          const ingVolume = this.parseNumber(Reflect.get(ing, 'volume'));
+          const ingAbv = this.parseNumber(Reflect.get(ing, 'abv'));
+
+          const matched = this.allIngredients.find(item => item.id === ingId || item.name === ingName);
+          const resolvedId = matched ? matched.id : (ingId && ingId.length > 0 ? ingId : `ing_${index}_${Date.now()}`);
+          const resolvedUnit = matched && matched.unit ? matched.unit : '毫升';
+          const resolvedCategory = matched && matched.category ? matched.category : 'other';
+          const defaultForVolume: IngredientItem = matched ? matched : { id: '', name: '', unit: '毫升', category: 'other', abv: 0 };
+          const resolvedVolume = ingVolume > 0 ? ingVolume : this.getDefaultVolume(defaultForVolume);
+          const resolvedAbv = ingAbv >= 0 ? ingAbv : (matched && matched.abv ? matched.abv : 0);
+
+          mapped.push({
+            id: resolvedId,
+            name: ingName || '未命名配料',
+            volume: resolvedVolume,
+            abv: resolvedAbv,
+            unit: resolvedUnit,
+            category: resolvedCategory
+          });
+        });
+        this.selectedIngredients = mapped;
+      }
+
+      const stepsField: ESObject[] = Reflect.get(detail, 'steps') as ESObject[];
+      const instructions: string = Reflect.get(detail, 'instructions') as string;
+      const parsedSteps = this.parseSteps(stepsField, instructions);
+      this.steps = parsedSteps.length > 0 ? parsedSteps : [{ id: '1', index: 1, text: instructions || '' }];
+
+      this.recalculateAbv();
+    } catch (error) {
+      console.error('[EditRecipePage] 解析详情失败:', error);
+      this.recipeLoadError = '配方数据解析失败';
     }
   }
   
@@ -515,6 +660,8 @@ export struct CustomRecipePage {
   private canSave(): boolean {
     return this.cocktailName.trim().length > 0 && 
            this.selectedIngredients.length > 0 &&
+           this.recipeId.length > 0 &&
+           !this.isLoadingRecipe &&
            !this.isSaving;
   }
   
@@ -524,6 +671,11 @@ export struct CustomRecipePage {
   private async saveCocktail() {
     if (!this.canSave()) {
       promptAction.showToast({ message: '请填写名称并选择配料' });
+      return;
+    }
+
+    if (!this.recipeId || this.recipeId.length === 0) {
+      promptAction.showToast({ message: '缺少配方ID，无法保存' });
       return;
     }
     
@@ -569,39 +721,27 @@ export struct CustomRecipePage {
       };
       console.info('[CustomRecipe] 保存配方数据:', JSON.stringify(recipeData));
       
-      // 如果有图片，使用带图片的接口
       if (this.selectedImagePath) {
         const context = getContext(this) as common.UIAbilityContext;
         console.info('[CustomRecipe] 准备上传图片, 路径:', this.selectedImagePath);
         console.info('[CustomRecipe] 文件名:', this.selectedImageFileName);
-        await apiService.createRecipeWithImage(context, recipeData, this.selectedImagePath, this.selectedImageFileName);
+        try {
+          await apiService.updateRecipeWithImage(context, this.recipeId, recipeData, this.selectedImagePath, this.selectedImageFileName);
+        } catch (uploadErr) {
+          console.error('[CustomRecipe] 图片上传失败，回退仅数据更新:', uploadErr);
+          await apiService.updateRecipe(this.recipeId, recipeData);
+          promptAction.showToast({ message: '图片未更新，其他修改已保存' });
+        }
       } else {
-        await apiService.createRecipe(recipeData);
+        await apiService.updateRecipe(this.recipeId, recipeData);
       }
       
-      promptAction.showToast({ message: '配方保存成功!' });
+      promptAction.showToast({ message: '修改已保存' });
       
       // 触发发现页面刷新
       const currentTrigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
       AppStorage.setOrCreate<number>('recipesRefreshTrigger', currentTrigger + 1);
       console.info('[CustomRecipe] 已触发配方列表刷新');
-      
-      // 清空表单并重置状态，确保步骤区也被清空
-      this.removeCocktailImage(); // 清理图片
-      this.cocktailName = '';
-      this.cocktailDescription = '';
-      this.selectedIngredients = [];
-      this.steps = [{ id: Date.now().toString(), index: 1, text: '' }];
-      this.estimatedAbv = 0;
-      this.abvDescription = '无酒精或低度酒精，适合任何人饮用';
-      this.currentCategory = 'base_alcohol';
-      this.ingredientSearch = '';
-      this.aiTasteDescription = '';
-      this.aiOccasion = '';
-      this.aiAlcoholStrength = '';
-      this.showAISection = true;
-      
-      // 不强制自动返回，避免导航导致的闪退，让用户自行返回或继续创建
     } catch (error) {
       console.error('[CustomRecipe] 保存失败:', error);
       const message = error instanceof Error ? error.message : '保存失败';
@@ -628,7 +768,7 @@ export struct CustomRecipePage {
           router.back();
         })
         
-        Text('自定义配方')
+        Text('编辑配方')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor(this.getColors().textPrimary)
@@ -646,23 +786,43 @@ export struct CustomRecipePage {
       // 内容区域 - 滚动视图
       Scroll() {
         Column({ space: 24 }) {
-          // AI智能调酒师
-          this.buildAISection()
-          
-          // 基本信息
-          this.buildBasicInfoSection()
-          
-          // 原料选择
-          this.buildIngredientSection()
-          
-          // ABV计算
-          this.buildAbvSection()
-          
-          // 制作步骤
-          this.buildStepsSection()
-          
-          // 保存按钮
-          this.buildSaveButton()
+          if (this.recipeLoadError.length > 0) {
+            Text(this.recipeLoadError)
+              .fontSize(14)
+              .fontColor('#FF3B30')
+              .padding(16)
+          } else if (this.isLoadingRecipe) {
+            Row({ space: 12 }) {
+              LoadingProgress()
+                .width(24)
+                .height(24)
+                .color('#1890ff')
+              Text('加载配方中...')
+                .fontSize(14)
+                .fontColor(this.getColors().textSecondary)
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+            .padding(32)
+          } else {
+            // AI智能调酒师
+            this.buildAISection()
+            
+            // 基本信息
+            this.buildBasicInfoSection()
+            
+            // 原料选择
+            this.buildIngredientSection()
+            
+            // ABV计算
+            this.buildAbvSection()
+            
+            // 制作步骤
+            this.buildStepsSection()
+            
+            // 保存按钮
+            this.buildSaveButton()
+          }
         }
         .width('100%')
         .padding(16)
@@ -1327,7 +1487,7 @@ export struct CustomRecipePage {
             .color(Color.White)
         }
         
-        Text(this.isSaving ? '保存中...' : '保存配方')
+        Text(this.isSaving ? '保存中...' : '保存修改')
           .fontSize(16)
           .fontColor(Color.White)
           .fontWeight(FontWeight.Medium)

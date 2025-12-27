@@ -166,6 +166,7 @@ export struct SettingsPage {
   @State appearanceMode: AppearanceMode = AppearanceMode.SYSTEM;
   @State language: AppLanguage = AppLanguage.SYSTEM;
   @State aiCacheTTLDays: number = 7;
+  @State isLoggedIn: boolean = false;
   @State userName: string = '';
   @State userRole: string = '';
   @State isAdmin: boolean = false;
@@ -190,6 +191,7 @@ export struct SettingsPage {
     
     // 加载用户信息
     const apiService = APIService.getInstance();
+    this.isLoggedIn = apiService.isLoggedIn;
     if (apiService.currentUser) {
       this.userName = apiService.currentUser.username;
       this.userRole = apiService.currentUser.role;
@@ -638,7 +640,12 @@ export struct SettingsPage {
           .height(56)
           .padding({ left: 16, right: 16 })
           .onClick(() => {
-            promptAction.showToast({ message: '功能开发中...' });
+            router.pushUrl({
+              url: 'pages/AdminPage'
+            }).catch((error: Error) => {
+              console.error('[SettingsPage] 跳转管理员页面失败:', error);
+              promptAction.showToast({ message: '打开失败' });
+            });
           })
           
           Divider()

@@ -59,6 +59,7 @@ export interface AdminRecipe {
   createdBy: string;
   likeCount: number;
   favoriteCount: number;
+  image?: string; // 配方图片路径
 }
 
 export interface AdminComment {
@@ -68,6 +69,7 @@ export interface AdminComment {
   text: string;
   timestamp: string;
   recipeId?: string;
+  recipeName?: string;
 }
 
 // API响应基础结构
@@ -127,6 +129,10 @@ interface CommentRequestBody {
   commentText: string;
 }
 
+interface UploadResult {
+  success: boolean;
+}
+
 interface RequestHeaders {
   'Content-Type'?: string;
   Cookie?: string;
@@ -134,6 +140,16 @@ interface RequestHeaders {
 
 interface HeaderOptions {
   contentType?: string;
+}
+
+// 更新配方请求体（前端 JSON 方式）
+interface UpdateRecipeRequestBody {
+  name: string;
+  description: string;
+  estimatedAbv: string;
+  ingredients: string; // JSON 字符串
+  steps: string;       // JSON 字符串
+  instructions: string;
 }
 
 // 状态变化监听器类型
@@ -250,6 +266,11 @@ export default class APIService {
 
   public get cachedLogin(): LoginCache | undefined {
     return this.loginCache;
+  }
+
+  // 暴露基础地址用于前端构造绝对资源 URL
+  public getBaseURL(): string {
+    return this.baseURL;
   }
   
   private constructor() {
@@ -1403,38 +1424,99 @@ export default class APIService {
         throw new APIError('请先登录', 'NOT_LOGGED_IN');
       }
       
-      const url = `${this.baseURL}/api/user/profile`;
-      const requestBody: Record<string, string> = {};
-      
-      if (nickname !== undefined && nickname.length > 0) {
-        requestBody['nickname'] = nickname;
+      // 当前资料，用于判断是否需要更新
+      const currentNickname: string = this._currentUser && this._currentUser.username ? this._currentUser.username : '';
+      const currentSignature: string = this._currentUser && this._currentUser.signature ? this._currentUser.signature : '';
+      const newNickname: string | undefined = nickname !== undefined ? nickname.trim() : undefined;
+      const newSignature: string | undefined = bio !== undefined ? bio.trim() : undefined;
+
+      // 1) 昵称更新（PUT /api/user/profile）- 仅当变更时调用
+      if (newNickname && newNickname.length > 0 && newNickname !== currentNickname) {
+        interface UpdateProfileRequest { nickname: string; }
+        const profileUrl = `${this.baseURL}/api/user/profile`;
+        const profileBody: UpdateProfileRequest = { nickname: newNickname };
+        const profileOptions = this.createRequestOptions(
+          http.RequestMethod.PUT,
+          { contentType: 'application/json' },
+          profileBody
+        );
+        const profileResp = await http.createHttp().request(profileUrl, profileOptions);
+        if (profileResp.responseCode !== 200) {
+          // 后端可能返回 409（昵称已被使用）或其他错误
+          let message = '更新昵称失败';
+          try {
+            const resObj: object = typeof profileResp.result === 'string' ? JSON.parse(profileResp.result) as object : profileResp.result as object;
+            const msg: string = Reflect.get(resObj, 'message') as string;
+            if (msg && msg.length > 0) { message = msg; }
+          } catch (_) {}
+          throw new APIError(message, 'UPDATE_NICKNAME_FAILED');
+        }
       }
-      if (bio !== undefined) {
-        requestBody['bio'] = bio;
+
+      // 2) 简介（签名）更新（POST /api/user/signature）- 仅当变更时调用
+      if (newSignature !== undefined && newSignature !== currentSignature) {
+        interface UpdateSignatureRequest { signature: string; }
+        const signatureUrl = `${this.baseURL}/api/user/signature`;
+        const signatureBody: UpdateSignatureRequest = { signature: newSignature };
+        const signatureOptions = this.createRequestOptions(
+          http.RequestMethod.POST,
+          { contentType: 'application/json' },
+          signatureBody
+        );
+        const signatureResp = await http.createHttp().request(signatureUrl, signatureOptions);
+        if (signatureResp.responseCode !== 200) {
+          let message = '更新简介失败';
+          try {
+            const resObj: object = typeof signatureResp.result === 'string' ? JSON.parse(signatureResp.result) as object : signatureResp.result as object;
+            const msg: string = Reflect.get(resObj, 'message') as string;
+            if (msg && msg.length > 0) { message = msg; }
+          } catch (_) {}
+          throw new APIError(message, 'UPDATE_SIGNATURE_FAILED');
+        }
       }
-      
-      const requestOptions = this.createRequestOptions(
-        http.RequestMethod.PUT,
-        { contentType: 'application/json' },
-        requestBody
-      );
-      const response = await http.createHttp().request(url, requestOptions);
-      
-      if (response.responseCode === 200) {
-        console.info('[APIService] 更新用户资料成功');
-        // 通知监听器刷新用户信息
-        this.notifyListeners();
-      } else {
-        const result:ESObject = response.result as ESObject;
-        const message = (result && result['message']) ? result['message'] as string : '更新失败';
-        throw new APIError(message, 'UPDATE_FAILED');
-      }
+
+      console.info('[APIService] 用户资料更新完成');
+      this.notifyListeners();
     } catch (error) {
       console.error('[APIService] 更新用户资料失败:', error);
       if (error instanceof APIError) {
         throw error;
       }
       throw new APIError('更新用户资料请求失败', 'NETWORK_ERROR');
+    }
+  }
+
+  /**
+   * 单独更新用户签名（简介）
+   */
+  public async updateUserSignature(signature: string): Promise<void> {
+    try {
+      if (!this._isLoggedIn) {
+        throw new APIError('请先登录', 'NOT_LOGGED_IN');
+      }
+      interface UpdateSignatureRequest { signature: string; }
+      const url = `${this.baseURL}/api/user/signature`;
+      const body: UpdateSignatureRequest = { signature: signature };
+      const options = this.createRequestOptions(
+        http.RequestMethod.POST,
+        { contentType: 'application/json' },
+        body
+      );
+      const resp = await http.createHttp().request(url, options);
+      if (resp.responseCode !== 200) {
+        let message = '更新简介失败';
+        try {
+          const resObj: object = typeof resp.result === 'string' ? JSON.parse(resp.result) as object : resp.result as object;
+          const msg: string = Reflect.get(resObj, 'message') as string;
+          if (msg && msg.length > 0) { message = msg; }
+        } catch (_) {}
+        throw new APIError(message, 'UPDATE_SIGNATURE_FAILED');
+      }
+      this.notifyListeners();
+    } catch (error) {
+      console.error('[APIService] 更新签名失败:', error);
+      if (error instanceof APIError) { throw error; }
+      throw new APIError('更新签名请求失败', 'NETWORK_ERROR');
     }
   }
   
@@ -1560,6 +1642,157 @@ export default class APIService {
       throw new APIError('创建配方失败', 'NETWORK_ERROR');
     } finally {
       httpRequest.destroy();
+    }
+  }
+
+  // 更新配方（不带图片，JSON字段字符串化以兼容后端解析）
+  public async updateRecipe(recipeId: string, recipeData: object): Promise<object> {
+    try {
+      const url = `${this.baseURL}/api/custom/cocktails/${recipeId}`;
+      const name: string = Reflect.get(recipeData as ESObject, 'name') as string;
+      const description: string = Reflect.get(recipeData as ESObject, 'description') as string;
+      const estimatedAbvValue: ESObject = Reflect.get(recipeData as ESObject, 'estimatedAbv') as ESObject;
+      const ingredientsValue: ESObject = Reflect.get(recipeData as ESObject, 'ingredients') as ESObject;
+      const stepsValue: ESObject = Reflect.get(recipeData as ESObject, 'steps') as ESObject;
+      const instructions: string = Reflect.get(recipeData as ESObject, 'instructions') as string;
+
+      const body: UpdateRecipeRequestBody = {
+        name: name,
+        description: description || '',
+        estimatedAbv: String(estimatedAbvValue),
+        ingredients: JSON.stringify(ingredientsValue),
+        steps: JSON.stringify(stepsValue || []),
+        instructions: instructions || ''
+      };
+
+      const options = this.createRequestOptions(http.RequestMethod.PUT, { contentType: 'application/json' }, body);
+      options.readTimeout = 60000;
+      options.connectTimeout = 60000;
+      const response = await http.createHttp().request(url, options);
+      if (response.responseCode === 200) {
+        return typeof response.result === 'string' ? JSON.parse(response.result) : response.result;
+      }
+      throw new APIError('更新配方失败');
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new APIError('未知错误: ' + JSON.stringify(error));
+    }
+  }
+
+  // 更新配方（带图片，multipart）
+  public async updateRecipeWithImage(context: common.UIAbilityContext, recipeId: string, recipeData: object, imagePath: string, imageFileName: string): Promise<object> {
+    try {
+      // 使用 POST + method override 以规避 RequestKit 对 PUT 的上传限制
+      const url = `${this.baseURL}/api/custom/cocktails/${recipeId}?_method=PUT`;
+      const internalUri = `internal://cache/${imageFileName}`;
+      console.info(`[APIService] 更新配方图片: absolute=${imagePath}, internal=${internalUri}`);
+
+      const files: Array<request.File> = [{
+        filename: 'image.jpg',
+        name: 'image',
+        uri: internalUri,
+        type: 'image/jpeg'
+      }];
+
+      const data: Array<request.RequestData> = [
+        { name: 'name', value: Reflect.get(recipeData as ESObject, 'name') as string },
+        { name: 'description', value: (Reflect.get(recipeData as ESObject, 'description') as string) || '' },
+        { name: 'estimatedAbv', value: String(Reflect.get(recipeData as ESObject, 'estimatedAbv')) },
+        { name: 'ingredients', value: JSON.stringify(Reflect.get(recipeData as ESObject, 'ingredients')) },
+        { name: 'steps', value: JSON.stringify(Reflect.get(recipeData as ESObject, 'steps') || []) },
+        { name: 'instructions', value: (Reflect.get(recipeData as ESObject, 'instructions') as string) || '' }
+      ];
+
+      const uploadConfig: request.UploadConfig = {
+        url: url,
+        header: { 'Cookie': this.authCookie, 'X-HTTP-Method-Override': 'PUT' },
+        method: 'POST',
+        files: files,
+        data: data
+      };
+
+      const uploadTask = await request.uploadFile(context, uploadConfig);
+      return await new Promise<object>((resolve, reject) => {
+        uploadTask.on('complete', (taskStates: Array<request.TaskState>) => {
+          const result: UploadResult = { success: true };
+          resolve(result);
+        });
+        uploadTask.on('fail', (taskStates: Array<request.TaskState>) => {
+          reject(new APIError('更新失败', 'UPLOAD_FAILED'));
+        });
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new APIError('未知错误: ' + JSON.stringify(error));
+    }
+  }
+  
+  /**
+   * 创建带图片的配方
+   */
+  public async createRecipeWithImage(context: common.UIAbilityContext, recipeData: object, imagePath: string, imageFileName: string): Promise<object> {
+    if (!this.isLoggedIn) {
+      throw new APIError('请先登录', 'AUTH_REQUIRED');
+    }
+    
+    try {
+      const url = `${this.baseURL}/api/custom/cocktails`;
+      
+      // 使用 internal://cache/ 协议路径
+      const internalUri = `internal://cache/${imageFileName}`;
+      console.info('[APIService] 绝对路径:', imagePath);
+      console.info('[APIService] Internal URI:', internalUri);
+      
+      // 构建multipart/form-data
+      const files: Array<request.File> = [{
+        filename: 'image.jpg',
+        name: 'image',
+        uri: internalUri,
+        type: 'image/jpeg'
+      }];
+      
+      // 将recipeData字段转为FormData格式
+      const data: Array<request.RequestData> = [
+        { name: 'name', value: Reflect.get(recipeData, 'name') as string },
+        { name: 'description', value: Reflect.get(recipeData, 'description') as string || '' },
+        { name: 'estimatedAbv', value: String(Reflect.get(recipeData, 'estimatedAbv')) },
+        { name: 'ingredients', value: JSON.stringify(Reflect.get(recipeData, 'ingredients')) },
+        { name: 'steps', value: JSON.stringify(Reflect.get(recipeData, 'steps') || []) }
+      ];
+      
+      const uploadConfig: request.UploadConfig = {
+        url: url,
+        header: { 'Cookie': this.authCookie },
+        method: 'POST',
+        files: files,
+        data: data
+      };
+      
+      const uploadTask = await request.uploadFile(context, uploadConfig);
+      
+      return new Promise<object>((resolve, reject) => {
+        uploadTask.on('complete', (taskStates: Array<request.TaskState>) => {
+          console.info('[APIService] 带图片创建配方成功');
+          const result: UploadResult = { success: true };
+          resolve(result);
+        });
+        
+        uploadTask.on('fail', (taskStates: Array<request.TaskState>) => {
+          console.error('[APIService] 带图片创建配方失败');
+          reject(new APIError('上传失败', 'UPLOAD_FAILED'));
+        });
+      });
+      
+    } catch (error) {
+      console.error('[APIService] 带图片创建配方失败:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError('创建配方失败', 'NETWORK_ERROR');
     }
   }
   

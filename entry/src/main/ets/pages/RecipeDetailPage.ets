@@ -746,6 +746,10 @@ struct RecipeDetailPage {
           .height(300)
           .objectFit(ImageFit.Cover)
           .backgroundColor('#E0E0E0')
+          .alt($r('app.media.wine'))
+          .onError(() => {
+            // 图片加载失败，自动使用 .alt() 设置的默认图片
+          })
 
         // 2. 信息卡片区域 (通过负 margin 实现向上偏移，盖在图片底部)
         Column({ space: 12 }) {
