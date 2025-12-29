@@ -99,10 +99,12 @@ class BasicDataSource implements IDataSource {
 export struct RecipesPage {
   @State recipesDataSource: BasicDataSource = new BasicDataSource();
   @State isLoading: boolean = false;
+  @State isRefreshing: boolean = false;
   @State currentPage: number = 1;
   @State totalPages: number = 1;
   @State errorMessage: string = '';
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
+  @StorageLink('recipesRefreshTrigger') @Watch('onRefreshTrigger') refreshTrigger: number = 0;
   
   // 筛选相关状态
   @State selectedCategory: string = 'all';     // 当前选中的基酒分类
@@ -142,6 +144,12 @@ export struct RecipesPage {
   // 获取当前主题色
   private getColors(): ThemeColors {
     return this.isDarkMode ? DarkTheme : LightTheme;
+  }
+  
+  // 刷新触发器回调
+  onRefreshTrigger() {
+    console.info('[RecipesPage] 检测到刷新触发器变化，刷新列表');
+    this.refresh();
   }
 
   aboutToAppear(): void {
@@ -204,6 +212,22 @@ export struct RecipesPage {
 
   private refresh(): void {
     this.fetchRecipes(true);
+  }
+
+  /**
+   * 处理下拉刷新事件
+   * 这个方法在用户完成下拉动作时调用
+   */
+  private async handlePullRefresh(): Promise<void> {
+    try {
+      console.info('[RecipesPage] 开始下拉刷新');
+      await this.fetchRecipes(true);
+    } catch (error) {
+      console.error('[RecipesPage] 下拉刷新失败:', error);
+    } finally {
+      // 下拉刷新完成后，设置 isRefreshing 为 false 以关闭刷新动画
+      this.isRefreshing = false;
+    }
   }
   
   // 前端过滤逻辑
@@ -489,25 +513,34 @@ export struct RecipesPage {
                Text('暂无内容').onClick(() => this.refresh())
            }.justifyContent(FlexAlign.Center).height('100%')
         } else {
-          WaterFlow({ footer: () => { this.footer() } }) {
-            LazyForEach(this.recipesDataSource, (recipe: Recipe) => {
-              FlowItem() {
-                RecipeCard({
-                  recipe: recipe,
-                  onTap: () => { this.openRecipeDetail(recipe.id) }
-                })
-              }
-              .width('100%')
-            }, (recipe: Recipe) => recipe.id)
+          Refresh({ refreshing: $$this.isRefreshing, offset: 80, friction: 62 }) {
+            WaterFlow({ footer: () => { this.footer() } }) {
+              LazyForEach(this.recipesDataSource, (recipe: Recipe) => {
+                FlowItem() {
+                  RecipeCard({
+                    recipe: recipe,
+                    onTap: () => { this.openRecipeDetail(recipe.id) }
+                  })
+                }
+                .width('100%')
+              }, (recipe: Recipe) => recipe.id)
+            }
+            .columnsTemplate("1fr 1fr")
+            .columnsGap(10)
+            .rowsGap(10)
+            .padding({ left: 10, right: 10, top: 10, bottom: 10 })
+            .width('100%')
+            .layoutWeight(1)
+            .onReachEnd(() => {
+                this.loadMore();
+            })
           }
-          .columnsTemplate("1fr 1fr")
-          .columnsGap(10)
-          .rowsGap(10)
-          .padding({ left: 10, right: 10, top: 10, bottom: 10 })
-          .width('100%')
-          .layoutWeight(1)
-          .onReachEnd(() => {
-              this.loadMore();
+          .onStateChange((refreshStatus: RefreshStatus) => {
+            console.info('[RecipesPage] 下拉刷新状态变化:', refreshStatus);
+          })
+          .onRefreshing(() => {
+            console.info('[RecipesPage] 触发下拉刷新');
+            this.handlePullRefresh();
           })
         }
       }
@@ -532,40 +565,44 @@ export struct RecipesPage {
 struct RecipeCard {
   @Prop recipe: Recipe;
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
-  @State imageLoadError: boolean = false;
-  @State avatarLoadError: boolean = false; // 👈 新增:头像加载失败状态
+  @State avatarLoadError: boolean = false;
   onTap?: () => void;
+  
+  // 默认图片和头像路径
+  private readonly DEFAULT_WINE_IMAGE: string = '/uploads/cocktails/jiu.jpg';
+  private readonly DEFAULT_AVATAR_PATH: string = '/uploads/avatars/test.jpg';
   
   private getColors(): ThemeColors {
     return this.isDarkMode ? DarkTheme : LightTheme;
   }
   
+  /**
+   * 获取配方图片URL
+   * 采用 RecipeDetailPage 的模式：本地图片不存在或为空则用默认图片
+   */
   private getImageSource(): string | Resource {
-    if (this.imageLoadError || !this.recipe.image) {
-      return $r('app.media.wine');
-    }
-    
-    if (this.recipe.image.startsWith('/')) {
-      const fullUrl = APIService.getInstance().baseUrl + this.recipe.image;
-      return fullUrl;
-    }
-    
-    return this.recipe.image;
+    // 优先使用配方的图片，失败则用默认图片
+    const imagePath = this.recipe.image || this.DEFAULT_WINE_IMAGE;
+    return apiService.getFullImageUrl(imagePath);
   }
 
-  // 👇 新增:获取作者头像URL
+  /**
+   * 获取作者头像URL
+   * 优先使用后端返回的 creatorAvatar，失败则用默认头像
+   */
   private getAvatarSource(): string | Resource {
-    if (this.avatarLoadError || !this.recipe.creatorAvatar) {
-      console.info('头像加载失败,[RecipeCard] 使用默认头像');
-      return $r('app.media.profile_cat'); // 默认头像
+    if (this.avatarLoadError) {
+      return apiService.getFullImageUrl(this.DEFAULT_AVATAR_PATH);
     }
     
-    if (this.recipe.creatorAvatar.startsWith('/')) {
-      const fullUrl = 'http://47.101.11.98:8080' + this.recipe.creatorAvatar;
-      return fullUrl;
+    // 优先使用后端返回的头像路径
+    const avatarPath = Reflect.get(this.recipe, 'creatorAvatar') as string;
+    if (avatarPath && avatarPath.length > 0) {
+      return apiService.getFullImageUrl(avatarPath);
     }
     
-    return this.recipe.creatorAvatar;
+    // 默认头像
+    return apiService.getFullImageUrl(this.DEFAULT_AVATAR_PATH);
   }
 
   build() {
@@ -582,7 +619,7 @@ struct RecipeCard {
         })
         .onError(() => {
           console.error(`[RecipeCard] 图片加载失败: ${this.recipe.name}`);
-          this.imageLoadError = true;
+          // 加载失败，Image 组件会使用 alt 的默认图片
         })
       
       // 内容区域
@@ -634,7 +671,10 @@ struct RecipeCard {
               .alt($r('app.media.profile_cat')) // 加载失败时显示默认图标
               .onError(() => {
                 console.error(`[RecipeCard] 头像加载失败: ${this.recipe.createdBy}`);
-                this.avatarLoadError = true;
+                // 本地头像加载失败，标记为失败，下次调用 getAvatarSource 会返回默认头像
+                if (!this.avatarLoadError) {
+                  this.avatarLoadError = true;
+                }
               })
             
             Text(this.recipe.createdBy)

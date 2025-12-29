@@ -52,7 +52,8 @@ interface RecipeDetail {
   likeCount: number;
   favoriteCount: number;
   ingredients: Array<Ingredient>;
-  image?: string; // 配方图片路径
+  image?: string;       // ✅ 补充图片字段
+  description?: string; // ✅ 补充描述字段
 }
 
 @Entry
@@ -89,6 +90,7 @@ struct RecipeDetailPage {
   @State isAnalyzing: boolean = false;
   @State showAIAnalysis: boolean = false;
   @State aiAnalysisText: string = '';
+  private readonly DEFAULT_WINE_IMAGE: string = '/uploads/cocktails/jiu.jpg';
 
   aboutToAppear() {
     // 从路由参数获取 recipeId
@@ -175,6 +177,8 @@ struct RecipeDetailPage {
         estimatedAbv: this.parseNumber(estimatedAbvValue),
         likeCount: this.parseNumber(likeCountValue),
         favoriteCount: this.parseNumber(favoriteCountValue),
+        image: Reflect.get(detail, 'image') as string,       // ✅ 解析图片
+        description: Reflect.get(detail, 'description') as string, // ✅ 解析描述
         ingredients: []
       };
       
@@ -546,11 +550,12 @@ struct RecipeDetailPage {
   }
 
   build() {
-    Column() {
-      // 顶部导航栏
-      this.buildTopBar()
-      
-      if (this.isLoading) {
+    Stack({ alignContent: Alignment.Bottom }) { // ✅ 使用 Stack 确保输入框吸底
+      Column() {
+        // 顶部导航栏
+        this.buildTopBar()
+        
+        if (this.isLoading) {
         // 加载状态
         Column() {
           LoadingProgress()
@@ -612,23 +617,54 @@ struct RecipeDetailPage {
             
             // 评论区域
             this.buildCommentsSection()
+
+            // ✅ 底部留出一个输入框的高度，防止被遮挡
+            Blank().height(100)
           }
           .width('100%')
-          .padding(16)
+          .padding({ left: 16, right: 16, top: 0, bottom: 16 })
         }
         .width('100%')
-        .layoutWeight(1)
-        .backgroundColor('#F5F5F5')
-        .scrollBar(BarState.Auto)
-        .edgeEffect(EdgeEffect.Spring)
+        .layoutWeight(1) // 占满剩余空间
+        .scrollBar(BarState.Off) // 关闭滚动条减少布局干扰
+        .edgeEffect(EdgeEffect.None) // 如果闪退依然存在，尝试关闭边缘回弹
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
-    .bindSheet($$this.showComments, this.buildCommentsSheet(), {
+
+    // ✅ 新增：吸底评论栏，只要登录了就永远显示在最下面
+    // ✅ 核心修改：吸底评论栏
+    // 只要加载完成且已登录，输入框就永远固定在屏幕最下方
+    if (!this.isLoading && this.recipe && this.isLoggedIn) {
+      Row({ space: 12 }) {
+        TextInput({ placeholder: '写下你的评论...', text: $$this.newCommentText })
+          .layoutWeight(1)
+          .height(42)
+          .backgroundColor('#F5F5F5')
+          .borderRadius(21)
+          .enterKeyType(EnterKeyType.Send)
+          .onSubmit(() => this.submitComment())
+
+        Button(this.isSubmittingComment ? '...' : '发送')
+          .type(ButtonType.Capsule)
+          .height(36)
+          .backgroundColor('#1890ff')
+          .enabled(!this.isSubmittingComment && this.newCommentText.trim().length > 0)
+          .onClick(() => this.submitComment())
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 10, bottom: 30 }) // 适配手势区
+      .backgroundColor(Color.White)
+      .shadow({ radius: 10, color: '#10000000', offsetY: -2 })
+    }
+  }
+  .width('100%')
+  .height('100%')
+  .backgroundColor('#F5F5F5')
+  .bindSheet($$this.showComments, this.buildCommentsSheet(), {
       height: SheetSize.LARGE,
-      showClose: false,
+      // showClose: false,
       dragBar: true,
       backgroundColor: Color.White,
       onDisappear: () => {
@@ -637,7 +673,7 @@ struct RecipeDetailPage {
     })
     .bindSheet($$this.showAIAnalysis, this.buildAIAnalysisSheet(), {
       height: SheetSize.LARGE,
-      showClose: false,
+      // showClose: false,
       dragBar: true,
       backgroundColor: Color.White,
       onDisappear: () => {
@@ -702,62 +738,70 @@ struct RecipeDetailPage {
    */
   @Builder
   buildHeaderSection() {
+
     if (this.recipe) {
-      Column({ space: 12 }) {
-        Text(this.recipe.name)
-        .fontSize(28)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#1A1A1A')
-        .width('100%')
-        .lineHeight(38)
-        
-        // 显示配方图片
-        if (this.recipe.image && this.recipe.image.length > 0) {
-          Image(APIService.getInstance().baseUrl + this.recipe.image)
+      Column({ space: 0 }) {
+
+        // 1. 顶部大图区域
+        Image(APIService.getInstance().getFullImageUrl(this.recipe?.image || this.DEFAULT_WINE_IMAGE))
+          .width('100%')
+          .height(300)
+          .objectFit(ImageFit.Cover)
+          .backgroundColor('#E0E0E0')
+          .alt($r('app.media.wine'))
+          .onError(() => {
+            // 图片加载失败，自动使用 .alt() 设置的默认图片
+          })
+
+        // 2. 信息卡片区域 (通过负 margin 实现向上偏移，盖在图片底部)
+        Column({ space: 12 }) {
+          // 标题
+          Text(this.recipe?.name ?? '加载中...')
+            .fontSize(28)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#1A1A1A')
             .width('100%')
-            .height(200)
-            .objectFit(ImageFit.Cover)
-            .borderRadius(12)
-            .margin({ top: 8, bottom: 8 })
-        }
-      
-      Row({ space: 12 }) {
-        Text(`👤 ${this.recipe.createdBy}`)
-          .fontSize(15)
-          .fontColor('#666666')
-        
-        Text('|')
-          .fontSize(15)
-          .fontColor('#DDDDDD')
-        
-        Text(`${this.recipe.estimatedAbv.toFixed(1)}% ABV`)
-          .fontSize(15)
-          .fontColor('#1890ff')
-          .fontWeight(FontWeight.Medium)
-        }
-        .width('100%')
-        
-        // 显示描述
-        if (this.recipe.description && this.recipe.description.length > 0) {
-          Column({ space: 4 }) {
-            Text('description：')
-              .fontSize(14)
-              .fontColor('#999999')
-              .width('100%')
-            Text(this.recipe.description)
-              .fontSize(14)
+            .lineHeight(38)
+
+          // 作者与 ABV 信息
+          Row({ space: 12 }) {
+            Text(`👤 ${this.recipe?.createdBy ?? '未知作者'}`)
+              .fontSize(15)
               .fontColor('#666666')
-              .width('100%')
-              .lineHeight(22)
+
+            Text('|')
+              .fontSize(15)
+              .fontColor('#DDDDDD')
+
+            Text(`${(this.recipe?.estimatedAbv ?? 0).toFixed(1)}% ABV`)
+              .fontSize(15)
+              .fontColor('#1890ff')
+              .fontWeight(FontWeight.Medium)
           }
           .width('100%')
-          .margin({ top: 8 })
+
+          // 风味描述专区 (description)
+          if (this.recipe?.description) {
+            Text(this.recipe.description)
+              .fontSize(16)
+              .fontColor('#555555')
+              .lineHeight(24)
+              .width('100%')
+              .margin({ top: 8 })
+              .padding(12)
+              .backgroundColor('#F9F9F9') // 浅灰背景衬托描述内容
+              .borderRadius(8)
+          }
         }
+        .width('92%') // 卡片宽度略窄于屏幕，更有层次感
+        .padding(20)
+        .backgroundColor(Color.White)
+        .borderRadius(16)
+        .shadow({ radius: 10, color: '#10000000', offsetY: 4 })
+        .margin({ top: -30 }) // ✅ 关键：使用负边距让卡片向上移动，盖住图片底部
       }
       .width('100%')
-      .padding(20)
-      .backgroundColor(Color.White)
-      .borderRadius(16)
+      .alignItems(HorizontalAlign.Center) // 让内部的卡片居中
     }
   }
 

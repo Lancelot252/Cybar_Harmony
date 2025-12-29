@@ -8,6 +8,9 @@ import { Recipe } from '../models/Recipe';
 import { router } from '@kit.ArkUI';
 import promptAction from '@ohos.promptAction';
 import { ThemeManager, LightTheme, DarkTheme, ThemeColors } from '../common/ThemeManager';
+import picker from '@ohos.file.picker'; // 相册选择器
+import fs from '@ohos.file.fs';         // 文件操作
+import common from '@ohos.app.ability.common'; // 上下文类型
 
 // Tab 类型枚举
 enum ProfileTab {
@@ -73,6 +76,10 @@ export struct UserProfilePage {
   @State userName: string = '未登录';
   @State userRole: string = '';
   @State userBio: string = '点击这里，填写简介';
+  // ✅ [新增] 头像 URL 和默认路径常量
+  @State avatarUrl: string = '';
+  @State signature: string = '';
+  private readonly DEFAULT_AVATAR_PATH = '/uploads/avatars/test.jpg';
   @State showLogin: boolean = false;
   @State showRegister: boolean = false;
   
@@ -112,6 +119,56 @@ export struct UserProfilePage {
   private getColors(): ThemeColors {
     return this.isDarkMode ? DarkTheme : LightTheme;
   }
+
+  async handleAvatarClick() {
+    try {
+      // 1. 创建图库选择器
+      const photoPicker = new picker.PhotoViewPicker();
+
+      // 2. 打开选择界面
+      const result = await photoPicker.select({
+        MIMEType: picker.PhotoViewMIMETypes.IMAGE_TYPE,
+        maxSelectNumber: 1
+      });
+
+      if (!result.photoUris || result.photoUris.length === 0) {
+        return; // 用户取消了选择
+      }
+
+      const selectedUri = result.photoUris[0];
+      console.info('[UserProfilePage] 用户选择了图片:', selectedUri);
+
+      // 3. 将图片从图库拷贝到应用沙箱 Cache 目录 (上传任务必须读取沙箱文件)
+      const context = getContext(this) as common.UIAbilityContext;
+      const fileName = `avatar_${Date.now()}.jpg`; // 生成唯一文件名
+      const cacheDir = context.cacheDir;
+      const targetPath = `${cacheDir}/${fileName}`;
+
+      // 打开源文件 (只读)
+      const file = fs.openSync(selectedUri, fs.OpenMode.READ_ONLY);
+      // 拷贝到目标路径
+      fs.copyFileSync(file.fd, targetPath);
+      fs.closeSync(file);
+
+      console.info('[UserProfilePage] 图片已拷贝到沙箱:', targetPath);
+
+      // 4. 显示加载提示
+      promptAction.showToast({ message: '正在上传头像...' });
+
+      // 5. 调用 APIService 上传
+      await APIService.getInstance().uploadAvatar(context, targetPath);
+
+      // 6. 成功提示 (uploadAvatar 内部成功后会自动 fetchCurrentUser，所以界面会自动更新)
+      promptAction.showToast({ message: '头像修改成功' });
+
+      // 清理缓存文件 (可选)
+      try { fs.unlinkSync(targetPath); } catch(e) {}
+
+    } catch (error) {
+      console.error('[UserProfilePage] 修改头像流程失败:', error);
+      promptAction.showToast({ message: '上传失败，请重试' });
+    }
+  }
   
   // 刷新触发器变化时刷新数据
   onRefreshTriggerChange() {
@@ -135,9 +192,22 @@ export struct UserProfilePage {
     if (apiService.currentUser) {
       this.userName = apiService.currentUser.username;
       this.userRole = apiService.currentUser.role;
+
+      // ✅ [新增] 获取签名，如果没有则显示默认文案
+      this.signature = apiService.currentUser.signature || '这个人很懒，什么都没写';
+      // ✅ [修复] 同步 userBio 和 signature
+      this.userBio = this.signature;
+      // ✅ [新增] 核心逻辑：读取头像并转换为完整链接
+      // 如果 currentUser.avatar 为空，就使用默认路径
+      const rawPath = apiService.currentUser.avatar || this.DEFAULT_AVATAR_PATH;
+      this.avatarUrl = apiService.getFullImageUrl(rawPath);
     } else {
       this.userName = '未登录';
       this.userRole = '';
+      this.userBio = '点击这里，填写简介';
+      // ✅ [新增] 未登录时重置头像
+      this.avatarUrl = '';
+      this.signature = '';
     }
     const cacheInfo = apiService.cachedLogin;
     
@@ -158,7 +228,14 @@ export struct UserProfilePage {
   }
   
   // 刷新所有数据
-  private refreshAll(force: boolean = false) {
+  private async refreshAll(force: boolean = false) {
+    try {
+      // 1. 先去服务器拉取最新头像和用户信息
+      await APIService.getInstance().fetchCurrentUser();
+    } catch (error) {
+      console.error('刷新用户信息失败:', error);
+    }
+
     if (force) {
       // 强制刷新时重置标志
       this.hasLoadedRecipes = false;
@@ -237,7 +314,8 @@ export struct UserProfilePage {
       estimatedAbv: this.parseNumber(item['estimatedAbv'] || item['estimated_abv']),
       likeCount: this.parseNumber(item['likeCount'] || item['like_count']),
       favoriteCount: this.parseNumber(item['favoriteCount'] || item['favorite_count']),
-      ingredients: (item['ingredients'] || '') as string
+      ingredients: (item['ingredients'] || '') as string,
+      image: (item['image'] || '') as string  // 解析图片路径
     };
   }
   
@@ -476,28 +554,39 @@ export struct UserProfilePage {
     Column() {
       Blank()
       
-      Column({ space: 20 }) {
-        // 图标
-        SymbolGlyph($r('sys.symbol.person'))
-          .fontSize(80)
-          .fontColor([this.getColors().textTertiary])
-        
-        // 提示文字
-        Text('登录以使用完整功能')
-          .fontSize(20)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.getColors().textPrimary)
-        
-        Text('登录后可以收藏配方、创建配方等')
-          .fontSize(14)
-          .fontColor(this.getColors().textSecondary)
-          .textAlign(TextAlign.Center)
-          .padding({ left: 32, right: 32 })
+        Row({ space: 12 }) {
+          Stack() {
+            // 使用真实头像，加载失败回退默认头像
+            Image(this.avatarUrl || APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH))
+              .width(70)
+              .height(70)
+              .borderRadius(35)
+              .objectFit(ImageFit.Cover)
+              .backgroundColor(this.getColors().divider)
+              .border({ width: 1, color: this.getColors().divider })
+              .onError(() => {
+                const fallback = APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH);
+                if (this.avatarUrl !== fallback) {
+                  this.avatarUrl = fallback;
+                }
+              })
 
-        Text(this.loginStatusDebug)
-          .fontSize(12)
-          .fontColor(this.getColors().textTertiary)
-          .textAlign(TextAlign.Center)
+            if (this.userRole === 'admin') {
+              // 管理员徽章
+              Text('V')
+                .fontSize(10)
+                .fontColor(Color.White)
+                .fontWeight(FontWeight.Bold)
+                .width(18)
+                .height(18)
+                .textAlign(TextAlign.Center)
+                .backgroundColor('#FF3B30')
+                .borderRadius(9)
+                .position({ x: 52, y: 52 })
+            }
+          }
+          .width(70)
+          .height(70)
           .padding({ left: 32, right: 32 })
         
         // 登录注册按钮
@@ -621,11 +710,19 @@ export struct UserProfilePage {
   buildUserInfoSection() {
     Column({ space: 12 }) {
       Row({ space: 16 }) {
-        // 头像
+        // 头像（真实头像 + 失败回退默认）
         Stack() {
-          SymbolGlyph($r('sys.symbol.person_crop_circle_fill'))
-            .fontSize(70)
-            .fontColor([this.getColors().textTertiary])
+          Image(this.avatarUrl || APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH))
+            .width(70)
+            .height(70)
+            .borderRadius(35)
+            .objectFit(ImageFit.Cover)
+            .backgroundColor(this.getColors().divider)
+            .border({ width: 1, color: this.getColors().divider })
+            .alt(APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH))
+            .onError(() => {
+              // 头像加载失败，自动使用 .alt() 设置的默认头像
+            })
           
           if (this.userRole === 'admin') {
             // 管理员徽章
@@ -706,7 +803,8 @@ export struct UserProfilePage {
           .padding({ left: 16, right: 16 })
           .onClick(() => {
             this.editNickname = this.userName;
-            this.editBio = this.userBio === '点击这里，填写简介' ? '' : this.userBio;
+            // ✅ [修复] 直接使用 signature，如果是默认文案则清空
+            this.editBio = this.signature === '这个人很懒，什么都没写' ? '' : this.signature;
             this.showEditProfile = true;
           })
         
@@ -894,11 +992,17 @@ export struct UserProfilePage {
     Column() {
       // 配方图片
       Stack() {
-        Image(this.getRecipeImageSource(recipe))
+        Image(recipe.image && recipe.image.length > 0 ? 
+          APIService.getInstance().getFullImageUrl(recipe.image) : 
+          $r('app.media.wine'))
           .width('100%')
           .height(140)
           .objectFit(ImageFit.Cover)
           .borderRadius({ topLeft: 8, topRight: 8 })
+          .alt($r('app.media.wine'))
+          .onError(() => {
+            // 图片加载失败，自动使用 .alt() 设置的默认图片
+          })
         
         // ABV 标签
         if (recipe.estimatedAbv > 0) {
@@ -944,6 +1048,29 @@ export struct UserProfilePage {
               .fontSize(11)
               .fontColor(this.getColors().textTertiary)
           }
+        }
+
+        // 我的创作下显示“编辑”入口
+        if (this.currentTab === ProfileTab.RECIPES) {
+          Row() {
+            Blank()
+            Button('编辑')
+              .type(ButtonType.Capsule)
+              .height(26)
+              .fontSize(12)
+              .backgroundColor(this.getColors().secondaryBackground)
+              .fontColor(this.getColors().textPrimary)
+              .padding({ left: 12, right: 12 })
+              .onClick(() => {
+                router.pushUrl({
+                  url: 'pages/EditRecipePage',
+                  params: { recipeId: recipe.id }
+                }).catch((error: Error) => {
+                  console.error('[UserProfilePage] 跳转编辑页面失败:', error);
+                });
+              })
+          }
+          .width('100%')
         }
       }
       .width('100%')
@@ -1034,9 +1161,18 @@ export struct UserProfilePage {
         // 头像区域
         Column({ space: 8 }) {
           Stack() {
-            SymbolGlyph($r('sys.symbol.person_crop_circle_fill'))
-              .fontSize(80)
-              .fontColor([this.getColors().textTertiary])
+            // ✅ [核心修改] 将原来的 SymbolGlyph 替换为 Image 组件
+            Image(this.avatarUrl)
+              .width(80)
+              .height(80)
+              .borderRadius(40)
+              .objectFit(ImageFit.Cover)
+              .backgroundColor(this.getColors().divider)
+              .border({ width: 1, color: this.getColors().divider })
+              .alt(APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH))
+              .onError(() => {
+                // 头像加载失败，自动使用 .alt() 设置的默认头像
+              })
             
             // 编辑图标
             Column() {
@@ -1061,7 +1197,8 @@ export struct UserProfilePage {
         .width('100%')
         .padding({ bottom: 24 })
         .onClick(() => {
-          promptAction.showToast({ message: '头像功能开发中...' });
+          // ✅ [核心修改] 调用真实的上传头像功能
+          this.handleAvatarClick();
         })
         
         // 表单区域
@@ -1155,8 +1292,8 @@ export struct UserProfilePage {
       return;
     }
     
-    if (this.editBio.length > 100) {
-      promptAction.showToast({ message: '简介不能超过100个字符' });
+    if (this.editBio.length > 50) {
+      promptAction.showToast({ message: '简介不能超过50个字符' });
       return;
     }
     
@@ -1164,12 +1301,13 @@ export struct UserProfilePage {
     
     try {
       const apiService = APIService.getInstance();
+      // 调用 API 更新用户资料
       await apiService.updateUserProfile(this.editNickname.trim(), this.editBio.trim());
       
-      // 更新本地状态
-      this.userName = this.editNickname.trim();
-      this.userBio = this.editBio.trim().length > 0 ? this.editBio.trim() : '点击这里，填写简介';
+      // ✅ 保存成功后，重新从服务器获取最新数据
+      await apiService.fetchCurrentUser();
       
+      // 本地状态会通过 stateChangeListener 自动更新
       promptAction.showToast({ message: '保存成功' });
       this.showEditProfile = false;
     } catch (error) {

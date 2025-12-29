@@ -5,6 +5,8 @@
     "pages/SearchPage",
     "pages/SettingsPage",
     "pages/MyFavoritesPage",
-    "pages/MyRecipesPage"
+    "pages/MyRecipesPage",
+    "pages/AdminPage",
+    "pages/EditRecipePage"
   ]
 }
