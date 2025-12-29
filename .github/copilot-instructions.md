@@ -11,9 +11,10 @@
 ### 目录结构
 ```
 entry/src/main/ets/
-├── entryability/     # 应用入口，初始化 APIService 和 SettingsManager
+├── entryability/     # 应用入口 - EntryAbility 初始化全局服务
 ├── pages/            # UI 页面组件 (@Component/@Entry)
-├── services/         # APIService 单例 - 所有后端交互
+│   └── Index.ets     # 主入口 - 底部导航 Tabs 架构
+├── services/         # APIService 单例 - 所有后端交互 + 观察者模式
 ├── models/           # TypeScript 接口定义 (Recipe, Ingredient, Comment 等)
 └── common/           # ThemeManager - 深色/浅色主题系统
 ```
@@ -21,77 +22,173 @@ entry/src/main/ets/
 ### 关键设计模式
 
 1. **单例服务模式**: `APIService.getInstance()` 和 `SettingsManager.getInstance()` 管理全局状态
-2. **观察者模式**: APIService 使用 `addListener/removeListener` 通知 UI 状态变化
-3. **AppStorage 状态同步**: 通过 `@StorageProp('isDarkMode')` 实现跨组件主题同步
+   - 在 `EntryAbility.onCreate()` 中调用 `initialize(context)` 初始化
+   - APIService 统一管理 Cookie 认证、用户状态、偏好存储
 
-### 数据流
+2. **观察者模式**: APIService 使用 `addListener/removeListener` 通知 UI 状态变化
+   - 登录/登出后调用 `notifyListeners()` 触发 UI 更新
+   - 参考 `APIService.ets` 的 `StateChangeListener` 类型定义
+
+3. **AppStorage 全局状态**: 通过装饰器实现跨组件响应式状态
+   - `@StorageProp('isDarkMode')`: 单向绑定，页面读取主题
+   - `@StorageLink('recipesRefreshTrigger')`: 双向绑定，跨页面刷新触发
+   - `ThemeManager.initializeStorage()` 在应用启动时初始化
+
+### 数据流与初始化顺序
 ```
-UI Page → APIService (单例) → HTTP 请求 → 后端 (47.101.11.98:8080)
+EntryAbility.onCreate() 
+  → APIService.initialize(context)    // 加载登录缓存、设置 Cookie
+  → SettingsManager.initialize(context)  // 加载外观/语言设置
+  → ThemeManager.updateTheme()        // 应用主题到 AppStorage
+
+UI Page → APIService (单例) → HTTP 请求 (携带 Cookie) → 后端
                 ↓
-    preferences 持久化 (登录缓存、设置)
+    preferences 持久化 (LOGIN_CACHE_KEY, app_settings)
 ```
 
 ## 代码规范
 
-### ArkTS 组件结构
+### ArkTS 组件结构（强制模式）
 ```typescript
-// 页面组件标准结构
+// 页面组件标准结构 - 所有页面必须遵循此模式
+@Entry  // 或 @Component（嵌套组件）
 @Component
 export struct XxxPage {
+  // 1. 全局状态绑定（AppStorage）
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
+  
+  // 2. 本地状态（@State 触发 UI 刷新）
   @State someData: DataType = initialValue;
   
+  // 3. 主题色获取（必须实现）
   private getColors(): ThemeColors {
     return this.isDarkMode ? DarkTheme : LightTheme;
   }
   
+  // 4. 生命周期初始化
   aboutToAppear(): void {
-    // 初始化逻辑，如加载数据
+    // 加载数据、订阅事件
   }
   
+  aboutToDisappear(): void {
+    // 清理监听器、资源释放
+  }
+  
+  // 5. UI 构建
   build() {
-    // UI 构建
+    Column() {
+      // 使用 this.getColors() 引用主题色
+    }
+    .backgroundColor(this.getColors().background)
   }
 }
 ```
 
-### 列表性能优化 - LazyForEach
-对于长列表，必须使用 `IDataSource` + `LazyForEach`：
+### 列表性能优化 - LazyForEach（长列表必备）
+对于超过 10 条的列表，必须使用 `IDataSource` + `LazyForEach` 实现懒加载：
+
 ```typescript
+// 1. 定义数据源类（参考 RecipesPage.ets）
 class BasicDataSource implements IDataSource {
   private listeners: DataChangeListener[] = [];
   private originDataArray: Recipe[] = [];
-  // 实现 totalCount, getData, registerDataChangeListener 等方法
+  
+  public totalCount(): number { return this.originDataArray.length; }
+  public getData(index: number): Recipe { return this.originDataArray[index]; }
+  
+  // 注册监听器
+  public registerDataChangeListener(listener: DataChangeListener): void {
+    if (this.listeners.indexOf(listener) < 0) {
+      this.listeners.push(listener);
+    }
+  }
+  
+  // 通知数据变更
+  public notifyDataReload(): void {
+    this.listeners.forEach(listener => listener.onDataReloaded());
+  }
+  
+  // 更新数据并通知
+  public setData(data: Recipe[]) {
+    this.originDataArray = data;
+    this.notifyDataReload();
+  }
+}
+
+// 2. 在组件中使用
+@Component
+export struct RecipesPage {
+  @State recipesDataSource: BasicDataSource = new BasicDataSource();
+  
+  build() {
+    List() {
+      LazyForEach(this.recipesDataSource, (recipe: Recipe, index: number) => {
+        ListItem() {
+          // 每项 UI
+        }
+      }, (recipe: Recipe) => recipe.id) // 唯一 key
+    }
+  }
 }
 ```
-参考: `RecipesPage.ets`, `RecommendationsPage.ets`
 
-### 主题系统
+### 主题系统实现细节
 - 颜色定义在 `ThemeManager.ets` (`LightTheme`/`DarkTheme`)
-- 所有页面通过 `getColors()` 获取当前主题色
-- 使用 `ResourceColor` 类型定义颜色
+- 所有页面通过 `getColors()` 获取当前主题色（禁止硬编码颜色）
+- 主题切换流程：
+  ```typescript
+  // SettingsPage.ets 中触发
+  await this.settingsManager.setAppearanceMode(AppearanceMode.DARK);
+  ThemeManager.updateTheme(mode, systemColorMode);
+  // → AppStorage.setOrCreate('isDarkMode', true)
+  // → 所有页面的 @StorageProp 自动响应
+  ```
+- 系统图标使用 `$r('sys.symbol.xxx')` (HarmonyOS 系统图标库)
 
-### API 调用模式
+### API 调用模式（Cookie 认证关键）
 ```typescript
 // 使用 @kit.NetworkKit 的 http 模块
 import { http } from '@kit.NetworkKit';
 
-// 请求需要带 Cookie 认证
-const options = this.createRequestOptions(http.RequestMethod.GET);
+// 请求需要带 Cookie 认证（APIService 自动处理）
+const options: http.HttpRequestOptions = {
+  method: http.RequestMethod.GET,
+  header: { 'Cookie': this.authCookie },  // 登录后自动设置
+  readTimeout: 30000,
+  connectTimeout: 30000
+};
 const response = await http.createHttp().request(url, options);
+
+// 响应处理（需类型转换）
+if (response.responseCode === 200) {
+  const data: ESObject = response.result as ESObject;
+  const username: string = Reflect.get(data, 'username') as string;
+}
 ```
 
 ## 后端 API 端点
 
-| 功能 | 端点 | 认证 |
-|------|------|------|
-| 配方列表 | `GET /api/recipes?page=&limit=` | 否 |
-| 配方详情 | `GET /api/recipes/:id` | 否 |
-| 点赞/收藏 | `POST /api/recipes/:id/like` | 是 |
-| 评论 | `GET/POST /api/recipes/:id/comments` | 是(POST) |
-| AI 生成配方 | `POST /api/ai/recipe` | 是 |
-| 登录 | `POST /api/login` | 否 |
-| 认证状态 | `GET /api/auth/status` | 否 |
+| 功能 | 端点 | 认证 | 说明 |
+|------|------|------|------|
+| 配方列表 | `GET /api/recipes?page=&limit=` | 否 | 支持 sortBy 参数 (default/likes/favorites/name) |
+| 配方详情 | `GET /api/recipes/:id` | 否 | 返回详细配方（包含 ingredients 数组） |
+| 点赞/收藏 | `POST /api/recipes/:id/like` | 是 | body: `{ action: 'like/unlike/favorite/unfavorite' }` |
+| 评论列表 | `GET /api/recipes/:id/comments` | 否 | 返回所有评论 |
+| 发表评论 | `POST /api/recipes/:id/comments` | 是 | body: `{ commentText: string }` |
+| AI 生成配方 | `POST /api/ai/recipe` | 是 | body: `{ ingredients: string[], preferences: {} }` |
+| 登录 | `POST /api/login` | 否 | body: `{ username, password }`，返回 Set-Cookie |
+| 注册 | `POST /api/register` | 否 | body: `{ username, password, email }` |
+| 认证状态 | `GET /api/auth/status` | 否 | 检查 Cookie 有效性 |
+| 管理员统计 | `GET /api/admin/stats` | 是(Admin) | 返回 `{ totalUsers, totalRecipes }` |
+
+**环境配置**（在 `APIService.ets` 顶部切换）：
+```typescript
+// 开发环境
+const BASE_URL: string = 'http://10.0.2.2:80';  // Android 模拟器访问主机
+
+// 生产环境
+const BASE_URL: string = 'http://47.101.11.98:8080';
+```
 
 ## 开发工作流
 

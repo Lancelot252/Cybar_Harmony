@@ -170,7 +170,7 @@ export struct SettingsPage {
   @State userName: string = '';
   @State userRole: string = '';
   @State isAdmin: boolean = false;
-  @State showLogoutConfirm: boolean = false; // 布尔状态，控制Sheet显示
+  @State isProcessingLogout: boolean = false;
   @State showLanguageDialog: boolean = false;
   @State pendingLanguage: AppLanguage = AppLanguage.SYSTEM;
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
@@ -199,7 +199,7 @@ export struct SettingsPage {
     }
   }
   
-  build() {
+  build() { 
     Column() {
       // 顶部导航栏
       Row() {
@@ -251,7 +251,7 @@ export struct SettingsPage {
           
           // 账户设置
           this.buildAccountSection();
-          
+
           // 关于
           this.buildAboutSection();
         }
@@ -265,66 +265,12 @@ export struct SettingsPage {
     .width('100%')
     .height('100%')
     .backgroundColor(this.getColors().background)
-    .bindSheet($$this.showLogoutConfirm, this.buildLogoutDialog(), {
-      detents: [SheetSize.MEDIUM],
-      onDisappear: () => {
-        this.showLogoutConfirm = false;
-      }
-    })
-    .bindSheet(this.showLanguageDialog, this.buildLanguageDialog(), {
+    .bindSheet($$this.showLanguageDialog, this.buildLanguageDialog(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],
       onDisappear: () => {
         this.showLanguageDialog = false;
       }
     })
-  }
-  
-  /**
-   * 退出登录对话框
-   */
-  @Builder
-  buildLogoutDialog() {
-    Column({ space: 20 }) {
-      Text('确认退出登录？')
-        .fontSize(18)
-        .fontWeight(FontWeight.Bold)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .padding({ top: 20 })
-      
-      Text('退出后将无法使用完整功能')
-        .fontSize(14)
-        .fontColor('#999999')
-        .textAlign(TextAlign.Center)
-      
-      Row({ space: 12 }) {
-        Button('取消')
-          .layoutWeight(1)
-          .backgroundColor('#F5F5F5')
-          .fontColor('#333333')
-          .onClick(() => {
-            this.showLogoutConfirm = false;
-          })
-        
-        Button('退出')
-          .layoutWeight(1)
-          .backgroundColor('#FF3B30')
-          .fontColor(Color.White)
-          .onClick(async () => {
-            this.showLogoutConfirm = false;
-            try {
-              await APIService.getInstance().logout();
-              promptAction.showToast({ message: '已退出登录' });
-              router.back();
-            } catch (error) {
-              promptAction.showToast({ message: '退出登录失败' });
-            }
-          })
-      }
-      .width('100%')
-      .padding({ left: 20, right: 20, bottom: 20 })
-    }
-    .width('100%')
   }
   
   /**
@@ -670,12 +616,52 @@ export struct SettingsPage {
         .height(56)
         .padding({ left: 16, right: 16 })
         .onClick(() => {
-          this.showLogoutConfirm = true;
+          this.confirmLogout();
         })
       }
       .width('100%')
       .backgroundColor(Color.White)
       .borderRadius(12)
+    }
+  }
+
+  /**
+   * 退出登录流程
+   */
+  private confirmLogout(): void {
+    if (this.isProcessingLogout) {
+      return;
+    }
+    const accentColor: string = this.isDarkMode ? '#0A84FF' : '#007DFF';
+    promptAction.showDialog({
+      title: '确认退出登录？',
+      message: '退出后将无法使用完整功能',
+      buttons: [
+        { text: '取消', color: accentColor },
+        { text: '退出登录', color: '#FF3B30' }
+      ]
+    }, async (error, data) => {
+      if (error || !data || data.index === 0) {
+        return;
+      }
+      if (data.index === 1) {
+        await this.performLogout();
+      }
+    });
+  }
+
+  private async performLogout(): Promise<void> {
+    this.isProcessingLogout = true;
+    try {
+      await APIService.getInstance().logout();
+      this.isLoggedIn = false;
+      promptAction.showToast({ message: '已退出登录' });
+      router.back();
+    } catch (error) {
+      console.error('[SettingsPage] 退出登录失败:', error);
+      promptAction.showToast({ message: '退出登录失败' });
+    } finally {
+      this.isProcessingLogout = false;
     }
   }
   
