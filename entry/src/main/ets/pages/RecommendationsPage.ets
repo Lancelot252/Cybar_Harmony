@@ -601,17 +601,35 @@ struct RecommendedRecipeCard {
   @Prop cardRatio: number = 0.75; // 默认3:4比例
   @Prop showMatchPercentage: boolean = true; // 是否显示匹配度标签
   @Prop showRecommendReason: boolean = true; // 是否显示推荐理由
+  @State imageLoadError: boolean = false;
   onTap?: () => void;
+  
+  private getImageSource(): string | Resource {
+    if (this.imageLoadError || !this.recipe.image) {
+      return $r('app.media.wine');
+    }
+    
+    if (this.recipe.image.startsWith('/')) {
+      const fullUrl = APIService.getInstance().baseUrl + this.recipe.image;
+      return fullUrl;
+    }
+    
+    return this.recipe.image;
+  }
   
   build() {
     Column() {
       // 图片区域
       Stack({ alignContent: Alignment.TopEnd }) {
-        Image($r('app.media.wine'))
+        Image(this.getImageSource())
           .width('100%')
           .aspectRatio(this.cardRatio) // 动态宽高比
           .objectFit(ImageFit.Cover)
           .borderRadius({ topLeft: 8, topRight: 8 })
+          .alt($r('app.media.wine'))
+          .onError(() => {
+            this.imageLoadError = true;
+          })
         
         // 匹配度标签（右上角）
         if (this.showMatchPercentage && this.recipe.matchPercentage > 0) {
@@ -722,17 +740,35 @@ struct RecipeWaterfallCard {
   @Prop cardRatio: number = 0.75; // 默认3:4比例
   @Prop showRank: boolean = false; // 是否显示排名
   @Prop rank: number = 0; // 排名数字
+  @State imageLoadError: boolean = false;
   onTap?: () => void;
+  
+  private getImageSource(): string | Resource {
+    if (this.imageLoadError || !this.recipe.image) {
+      return $r('app.media.wine');
+    }
+    
+    if (this.recipe.image.startsWith('/')) {
+      const fullUrl = APIService.getInstance().baseUrl + this.recipe.image;
+      return fullUrl;
+    }
+    
+    return this.recipe.image;
+  }
   
   build() {
     Column() {
       // 图片区域
       Stack({ alignContent: Alignment.TopStart }) {
-        Image($r('app.media.wine'))
+        Image(this.getImageSource())
           .width('100%')
           .aspectRatio(this.cardRatio) // 动态宽高比
           .objectFit(ImageFit.Cover)
           .borderRadius({ topLeft: 8, topRight: 8 })
+          .alt($r('app.media.wine'))
+          .onError(() => {
+            this.imageLoadError = true;
+          })
         
         // 热榜排名标签
         if (this.showRank && this.rank > 0 && this.rank <= 3) {

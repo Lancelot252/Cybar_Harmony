@@ -1,24 +1,10 @@
 {
   "app": {
-    "signingConfigs": [
-      {
-        "name": "default",
-        "type": "HarmonyOS",
-        "material": {
-          "certpath": "C:\\Users\\张权德\\.ohos\\config\\default_Cybar_Harmony_uGv22AfeZM7ByfCHG86cIEYAPfSjctdcuKmIoEHfLyc=.cer",
-          "keyAlias": "debugKey",
-          "keyPassword": "0000001B0099900D52983EB0FDD9BB60B0D95E740BAD592AA46BE35F2047AB486D6AC295F46940FE755668",
-          "profile": "C:\\Users\\张权德\\.ohos\\config\\default_Cybar_Harmony_uGv22AfeZM7ByfCHG86cIEYAPfSjctdcuKmIoEHfLyc=.p7b",
-          "signAlg": "SHA256withECDSA",
-          "storeFile": "C:\\Users\\张权德\\.ohos\\config\\default_Cybar_Harmony_uGv22AfeZM7ByfCHG86cIEYAPfSjctdcuKmIoEHfLyc=.p12",
-          "storePassword": "0000001B3C4A889D543781D7C6D164F4B7C83E2D3574983A0E885A7C3578D13749632C7ED4E30E42A7F481"
-        }
-      }
-    ],
+    "signingConfigs": [],
     "products": [
       {
         "name": "default",
-        "signingConfig": "default",
+        "signingConfig": "",
         "targetSdkVersion": "5.0.0(12)",
         "compatibleSdkVersion": "5.0.0(12)",
         "runtimeOS": "HarmonyOS",

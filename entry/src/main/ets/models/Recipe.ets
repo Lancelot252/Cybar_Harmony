@@ -105,6 +105,8 @@ export interface RecipeRecommendation {
 export interface RecommendedRecipe {
   id: string;
   name: string;
+  image?: string; // 图片路径
+  description?: string; // 配方描述
   estimatedAbv: number | string; // 后端返回字符串类型
   matchPercentage: number; // 匹配度百分比 (0-100)
   reason: string; // 合并的推荐理由

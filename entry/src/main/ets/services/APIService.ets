@@ -183,6 +183,8 @@ interface RecommendationScores {
 interface ScoredRecipe {
   id: string;
   name: string;
+  image?: string;
+  description?: string;
   estimatedAbv: number;
   createdBy: string;
   ingredients: string;
@@ -197,6 +199,8 @@ interface ScoredRecipe {
 interface RecipeData {
   id: string;
   name: string;
+  image?: string;
+  description?: string;
   estimatedAbv: number;
   createdBy: string;
   ingredients: string;
@@ -208,6 +212,8 @@ interface RecipeData {
 interface RecommendationResult {
   id: string;
   name: string;
+  image?: string;
+  description?: string;
   estimatedAbv: number;
   matchPercentage: number;
   reason: string;
@@ -227,11 +233,11 @@ interface LocalRecipesResponse {
  */
 
 // ⚠️ 开发环境 - 本地调试（使用时取消注释这行，注释掉生产环境）
-const BASE_URL: string = 'http://192.168.43.96:8080';
+// const BASE_URL: string = 'http://192.168.43.96:8080';
 // const BASE_URL: string = 'http://10.0.2.2:80';
 // const BASE_URL: string = 'http://192.168.43.231:8080';
 // ⚠️ 生产环境 - 远程服务器（发布时取消注释这行，注释掉开发环境）
-// const BASE_URL: string = 'http://47.101.11.98:8080';
+const BASE_URL: string = 'http://47.101.11.98:8080';
 
 /**
  * API服务单例类
@@ -826,33 +832,35 @@ export default class APIService {
 
       // 1. 获取用户的点赞和收藏数据
       const userInteractions = await this.getUserInteractions();
-      if (userInteractions.length === 0) {
-        return {
-          recommendations: [],
-          message: '您还没有点赞或收藏任何配方，无法生成推荐'
-        };
-      }
-
-      // 2. 分析用户偏好
-      const userPreferences = this.analyzeUserPreferences(userInteractions);
-
-      // 3. 获取所有候选配方（调用recipes接口）
+      
+      // 2. 获取所有候选配方（调用recipes接口）
       const allRecipesData: object = await this.getAllRecipes();
       const recipesResponse = allRecipesData as LocalRecipesResponse;
       if (!recipesResponse || !recipesResponse.recipes) {
         throw new APIError('获取配方数据失败', 'FETCH_FAILED');
       }
 
-      // 4. 过滤掉用户已交互的配方
-      const candidateRecipes: RecipeData[] = [];
-      recipesResponse.recipes.forEach((recipe: RecipeData) => {
-        if (!userPreferences.interactedRecipeIds.has(recipe.id)) {
-          candidateRecipes.push(recipe);
-        }
-      });
+      let scoredRecipes: ScoredRecipe[] = [];
+      
+      if (userInteractions.length === 0) {
+        // 无用户交互数据时，使用人气得分推荐
+        const candidateRecipes: RecipeData[] = recipesResponse.recipes;
+        scoredRecipes = this.calculatePopularityOnlyScores(candidateRecipes);
+      } else {
+        // 3. 分析用户偏好
+        const userPreferences = this.analyzeUserPreferences(userInteractions);
 
-      // 5. 计算推荐得分
-      const scoredRecipes: ScoredRecipe[] = this.calculateRecommendationScores(candidateRecipes, userPreferences);
+        // 4. 过滤掉用户已交互的配方
+        const candidateRecipes: RecipeData[] = [];
+        recipesResponse.recipes.forEach((recipe: RecipeData) => {
+          if (!userPreferences.interactedRecipeIds.has(recipe.id)) {
+            candidateRecipes.push(recipe);
+          }
+        });
+
+        // 5. 计算推荐得分
+        scoredRecipes = this.calculateRecommendationScores(candidateRecipes, userPreferences);
+      }
 
       // 6. 排序并应用分页
       scoredRecipes.sort((a: ScoredRecipe, b: ScoredRecipe) => b.totalScore - a.totalScore);
@@ -1136,6 +1144,60 @@ export default class APIService {
       const scoredRecipe: ScoredRecipe = {
         id: recipe.id,
         name: recipe.name,
+        image: recipe.image,
+        description: recipe.description,
+        estimatedAbv: recipe.estimatedAbv,
+        createdBy: recipe.createdBy,
+        ingredients: recipe.ingredients,
+        likeCount: recipe.likeCount,
+        favoriteCount: recipe.favoriteCount,
+        scores: scores,
+        totalScore: totalScore,
+        matchReasons: matchReasons
+      };
+      
+      results.push(scoredRecipe);
+    });
+    
+    return results;
+  }
+
+  /**
+   * 仅基于人气得分计算推荐（无用户交互数据时使用）
+   */
+  private calculatePopularityOnlyScores(recipes: RecipeData[]): ScoredRecipe[] {
+    const results: ScoredRecipe[] = [];
+    
+    recipes.forEach((recipe: RecipeData) => {
+      const scores: RecommendationScores = {
+        ingredientMatch: 0,
+        creatorMatch: 0,
+        abvMatch: 0,
+        popularity: 0
+      };
+      const matchReasons: string[] = [];
+
+      // 仅计算人气得分 (权重 10，作为唯一指标)
+      const totalInteractions = (recipe.likeCount || 0) + (recipe.favoriteCount || 0);
+      if (totalInteractions > 0) {
+        scores.popularity = Math.min(10, 10 * Math.log(1 + totalInteractions / 10));
+        if (totalInteractions > 5) {
+          matchReasons.push(`热门配方 (已有${totalInteractions}次👍&⭐)`);
+        }
+      }
+
+      // 添加默认推荐理由
+      if (matchReasons.length === 0) {
+        matchReasons.push('为您精选的配方');
+      }
+
+      const totalScore = scores.popularity;
+
+      const scoredRecipe: ScoredRecipe = {
+        id: recipe.id,
+        name: recipe.name,
+        image: recipe.image,
+        description: recipe.description,
         estimatedAbv: recipe.estimatedAbv,
         createdBy: recipe.createdBy,
         ingredients: recipe.ingredients,
@@ -1156,7 +1218,11 @@ export default class APIService {
    * 格式化推荐结果
    */
   private formatRecommendation(recipe: ScoredRecipe): RecommendationResult {
-    const maxPossibleScore = 4 + 3 + 2 + 1.5; // 总权重
+    // 判断是否为仅人气推荐（其他得分都为0时）
+    const isPopularityOnly = recipe.scores.ingredientMatch === 0 && 
+                             recipe.scores.creatorMatch === 0 && 
+                             recipe.scores.abvMatch === 0;
+    const maxPossibleScore = isPopularityOnly ? 10 : (4 + 3 + 2 + 1.5); // 总权重
     const matchPercentage = Math.min(100, Math.round((recipe.totalScore / maxPossibleScore) * 100));
 
     let reasons: string[] = [];
@@ -1171,6 +1237,8 @@ export default class APIService {
     const result: RecommendationResult = {
       id: recipe.id,
       name: recipe.name,
+      image: recipe.image,
+      description: recipe.description,
       estimatedAbv: recipe.estimatedAbv,
       matchPercentage: matchPercentage,
       reason: reasonText,
