@@ -110,6 +110,16 @@ class BasicDataSource implements IDataSource {
         this.notifyDataAdd(startIndex + i);
     });
   }
+  // ✅ 新增：获取当前显示的所有数据（用于查找索引）
+  public getAllData(): Recipe[] {
+    return this.originDataArray;
+  }
+
+  // ✅ 新增：只更新指定索引的一条数据，并保留滚动位置
+  public updateItem(index: number, data: Recipe): void {
+    this.originDataArray[index] = data;
+    this.notifyDataChange(index); // 核心：只通知这一行变化
+  }
 }
 
 @Entry
@@ -194,7 +204,7 @@ export struct RecipesPage {
     if (this.interactionUpdate) {
       this.applyInteractionUpdate(this.interactionUpdate);
     }
-    if (!this.isLoading) {
+    if (this.recipesDataSource.totalCount() === 0 && !this.isLoading) {
       this.refresh();
     }
   }
@@ -351,41 +361,77 @@ export struct RecipesPage {
     this.recipesDataSource.setData(filtered);
   }
 
-  // 从存储的交互事件同步本地列表
   private applyInteractionUpdate(payload: InteractionUpdatePayload): void {
     try {
       const targetId = String(payload.id || '');
-      if (!targetId || this.allRecipes.length === 0) return;
+      // 1. 获取当前正在显示的数据列表
+      const currentList = this.recipesDataSource.getAllData();
 
+      if (!targetId || currentList.length === 0) return;
+
+      // 2. 在当前显示的列表中查找目标配方的索引
+      const displayIndex = currentList.findIndex(r => String(r.id) === targetId);
+
+      // 如果当前列表中没有这个配方（比如被筛选过滤掉了），就不需要更新 UI
+      if (displayIndex < 0) {
+        // 但还是要更新原始数据 allRecipes，以免下次筛选出来时数据是旧的
+        this.updateAllRecipesCache(targetId, payload);
+        return;
+      }
+
+      // 3. 获取旧对象并计算新值
+      const item = currentList[displayIndex];
       const likeCount = this.parseNumberSafe(payload.likeCount);
       const favoriteCount = this.parseNumberSafe(payload.favoriteCount);
       const isLiked = payload.isLiked ? true : false;
       const isFavorited = payload.isFavorited ? true : false;
 
-      const updatedAll: Recipe[] = [];
-      for (let i = 0; i < this.allRecipes.length; i++) {
-        const item: Recipe = this.allRecipes[i];
-        const currentId = String(item.id || '');
-        if (currentId === targetId) {
-          if (likeCount >= 0) {
-            item.likeCount = likeCount;
-          }
-          if (favoriteCount >= 0) {
-            item.favoriteCount = favoriteCount;
-          }
-          item.isLiked = isLiked;
-          item.isFavorited = isFavorited;
-        }
-        updatedAll.push(item);
-      }
+      // 4. 手动构造新对象 (ArkTS 规范)
+      const newItem: Recipe = {
+        id: item.id,
+        name: item.name,
+        image: item.image,
+        description: item.description,
+        estimatedAbv: item.estimatedAbv,
+        createdBy: item.createdBy,
+        creatorAvatar: item.creatorAvatar,
+        ingredients: item.ingredients,
+        // 移除 steps 和 instructions 防止报错
+        // steps: item.steps,
+        // instructions: item.instructions,
 
-      this.allRecipes = updatedAll;
-      this.applyFilters();
+        // 更新交互状态
+        likeCount: likeCount >= 0 ? likeCount : item.likeCount,
+        favoriteCount: favoriteCount >= 0 ? favoriteCount : item.favoriteCount,
+        isLiked: item.isLiked,          // ⚠️ 保持列表原有的点赞状态，不使用 payload.isLiked
+        isFavorited: item.isFavorited   // ⚠️ 保持列表原有的收藏状态，不使用 payload.isFavorited
+      };
+
+      // 5. ✅ 核心修改：只更新数据源中的这一项
+      // 这会触发 LazyForEach 的局部刷新，而不会重置滚动条
+      this.recipesDataSource.updateItem(displayIndex, newItem);
+
+      // 6. 同时同步更新 allRecipes (后台原始数据)，保证取消筛选后状态依然正确
+      this.updateAllRecipesCache(targetId, payload);
+      console.error('[RecipesPage] 本地交互同步成功');
+
     } catch (e) {
       console.error('[RecipesPage] 本地交互同步失败:', e);
     }
   }
-
+  // 辅助方法：同步更新原始数据缓存（不涉及 UI 刷新）
+  private updateAllRecipesCache(targetId: string, payload: InteractionUpdatePayload) {
+    const index = this.allRecipes.findIndex(r => String(r.id) === targetId);
+    if (index >= 0) {
+      const item = this.allRecipes[index];
+      // 简单更新原始数组中的引用对象即可，因为这时不涉及 UI 渲染
+      if (this.parseNumberSafe(payload.likeCount) >= 0) item.likeCount = this.parseNumberSafe(payload.likeCount);
+      if (this.parseNumberSafe(payload.favoriteCount) >= 0) item.favoriteCount = this.parseNumberSafe(payload.favoriteCount);
+      item.isLiked = payload.isLiked;
+      item.isFavorited = payload.isFavorited;
+      // 注意：这里修改的是引用，不需要重新赋值给 this.allRecipes
+    }
+  }
   private parseNumberSafe(value: string | number | null | undefined): number {
     if (value === null || value === undefined) {
       return -1;
@@ -600,7 +646,12 @@ export struct RecipesPage {
                   })
                 }
                 .width('100%')
-              }, (recipe: Recipe) => recipe.id)
+              }, (recipe: Recipe) => {
+                // ✅ 核心修复：
+                // 将 id、点赞数、收藏数、点赞状态组合成唯一的 Key。
+                // 只要这些状态有任何变化，Key 就会改变，强制 UI 重新渲染该卡片。
+                return `${recipe.id}_${recipe.likeCount}_${recipe.favoriteCount}`;
+              })
             }
             .columnsTemplate("1fr 1fr")
             .columnsGap(10)

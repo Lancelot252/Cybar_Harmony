@@ -737,9 +737,13 @@ struct RecipeWaterfallCard {
   @Prop showRank: boolean = false; // 是否显示排名
   @Prop rank: number = 0; // 排名数字
   onTap?: () => void;
+  // ✅ 1. 添加头像加载失败状态
+  @State avatarLoadError: boolean = false;
   
   // 默认图片路径（与RecipesPage保持一致）
   private readonly DEFAULT_WINE_IMAGE: string = '/uploads/cocktails/jiu.jpg';
+  // ✅ 2. 添加默认头像路径
+  private readonly DEFAULT_AVATAR_PATH: string = '/uploads/avatars/test.jpg';
   
   /**
    * 获取配方图片URL（采用RecipesPage的模式，不使用状态避免闪烁）
@@ -748,6 +752,22 @@ struct RecipeWaterfallCard {
     // 优先使用配方的图片，失败则用默认图片
     const imagePath = this.recipe.image || this.DEFAULT_WINE_IMAGE;
     return APIService.getInstance().getFullImageUrl(imagePath);
+  }
+  // ✅ 3. 添加获取头像方法 (仿照 RecipesPage)
+  private getAvatarSource(): string | Resource {
+    if (this.avatarLoadError) {
+      return APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH);
+    }
+
+    // 优先使用后端返回的头像路径
+    // 注意：Reflect.get 用于动态获取可能未在接口定义的 creatorAvatar 字段
+    const avatarPath = Reflect.get(this.recipe, 'creatorAvatar') as string;
+    if (avatarPath && avatarPath.length > 0) {
+      return APIService.getInstance().getFullImageUrl(avatarPath);
+    }
+
+    // 默认头像
+    return APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH);
   }
   
   build() {
@@ -828,11 +848,20 @@ struct RecipeWaterfallCard {
         Row() {
           // 创建者
           Row({ space: 4 }) {
-            Image($r('app.media.startIcon'))
+            // ✅ 修改点：调用 getAvatarSource() 并添加 onError 处理
+            Image(this.getAvatarSource())
               .width(16)
               .height(16)
               .borderRadius(8)
+              .objectFit(ImageFit.Cover)
               .flexShrink(0)
+              .alt($r('app.media.startIcon')) // 加载过程或失败时的占位图
+              .onError(() => {
+                // 如果加载失败，标记状态，触发重绘使用默认头像
+                if (!this.avatarLoadError) {
+                  this.avatarLoadError = true;
+                }
+              })
             
             Text(this.recipe.createdBy)
               .fontSize(10)

@@ -483,9 +483,9 @@ struct RecipeDetailPage {
           this.favoriteCount = this.parseNumber(favoriteCountValue);
         }
 
-        // 通知列表刷新点赞/收藏状态
-        const trigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
-        AppStorage.setOrCreate<number>('recipesRefreshTrigger', trigger + 1);
+        // // 通知列表刷新点赞/收藏状态
+        // const trigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
+        // AppStorage.setOrCreate<number>('recipesRefreshTrigger', trigger + 1);
 
         // 推送本地交互同步
         AppStorage.setOrCreate('lastRecipeInteraction', {
@@ -551,9 +551,9 @@ struct RecipeDetailPage {
           this.likeCount = this.parseNumber(likeCountValue);
         }
 
-        // 通知列表刷新点赞/收藏状态
-        const trigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
-        AppStorage.setOrCreate<number>('recipesRefreshTrigger', trigger + 1);
+        // // 通知列表刷新点赞/收藏状态
+        // const trigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
+        // AppStorage.setOrCreate<number>('recipesRefreshTrigger', trigger + 1);
 
         // 推送本地交互同步
         AppStorage.setOrCreate('lastRecipeInteraction', {
