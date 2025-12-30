@@ -183,8 +183,6 @@ interface RecommendationScores {
 interface ScoredRecipe {
   id: string;
   name: string;
-  image?: string;
-  description?: string;
   estimatedAbv: number;
   createdBy: string;
   ingredients: string;
@@ -199,8 +197,6 @@ interface ScoredRecipe {
 interface RecipeData {
   id: string;
   name: string;
-  image?: string;
-  description?: string;
   estimatedAbv: number;
   createdBy: string;
   ingredients: string;
@@ -212,8 +208,6 @@ interface RecipeData {
 interface RecommendationResult {
   id: string;
   name: string;
-  image?: string;
-  description?: string;
   estimatedAbv: number;
   matchPercentage: number;
   reason: string;
@@ -260,10 +254,6 @@ export default class APIService {
   
   // 状态变化监听器列表
   private listeners: StateChangeListener[] = [];
-  
-  // 推荐会话缓存 - 用于分层随机抽样
-  private recommendationSessionCache: ScoredRecipe[] = [];
-  private recommendationSessionSeed: number = 0;
   
   // 公开的 getter
   public get isLoggedIn(): boolean {
@@ -708,7 +698,7 @@ export default class APIService {
       throw new APIError('登出请求失败', 'NETWORK_ERROR');
     }
   }
-
+  
   /**
    * 获取配方列表
    * @param page 页码
@@ -769,7 +759,7 @@ export default class APIService {
       httpRequest.destroy();
     }
   }
-
+  
   /**
    * 获取配方详情
    * @param id 配方ID
@@ -822,85 +812,72 @@ export default class APIService {
   
   /**
    * 获取推荐列表（支持分页）- 现调用recipes接口并在本地实现推荐算法
-   * 使用分层随机抽样：将推荐按匹配度分为高/中/低三层，每页随机混合抽取
    * @param page 页码（从1开始）
    * @param limit 每页数量
-   * @param forceRefresh 是否强制刷新（下拉刷新时传true）
    */
-  public async fetchRecommendations(page: number = 1, limit: number = 10, forceRefresh: boolean = false): Promise<RecommendationsResponse> {
+  public async fetchRecommendations(page: number = 1, limit: number = 10): Promise<RecommendationsResponse> {
     try {
-      // 如果强制刷新或第一页且缓存为空，重新生成随机序列
-      if (forceRefresh || (page === 1 && this.recommendationSessionCache.length === 0)) {
-        this.resetRecommendationSession();
-        
-        // 1. 获取用户的点赞和收藏数据（未登录时返回空数组）
-        let userInteractions: UserInteraction[] = [];
-        if (this._isLoggedIn) {
-          userInteractions = await this.getUserInteractions();
-        }
-        
-        // 2. 获取所有候选配方（调用recipes接口）
-        const allRecipesData: object = await this.getAllRecipes();
-        const recipesResponse = allRecipesData as LocalRecipesResponse;
-        if (!recipesResponse || !recipesResponse.recipes) {
-          throw new APIError('获取配方数据失败', 'FETCH_FAILED');
-        }
-
-        let scoredRecipes: ScoredRecipe[] = [];
-        let isPopularityOnly = false;
-        
-        // 未登录或无用户交互数据时，使用人气得分推荐
-        if (!this._isLoggedIn || userInteractions.length === 0) {
-          const candidateRecipes: RecipeData[] = recipesResponse.recipes;
-          scoredRecipes = this.calculatePopularityOnlyScores(candidateRecipes);
-          isPopularityOnly = true;
-          console.info(`[APIService] 使用人气推荐模式 (登录状态: ${this._isLoggedIn}, 交互数据: ${userInteractions.length}条)`);
-        } else {
-          // 3. 分析用户偏好
-          const userPreferences = this.analyzeUserPreferences(userInteractions);
-
-          // 4. 过滤掉用户已交互的配方
-          const candidateRecipes: RecipeData[] = [];
-          recipesResponse.recipes.forEach((recipe: RecipeData) => {
-            if (!userPreferences.interactedRecipeIds.has(recipe.id)) {
-              candidateRecipes.push(recipe);
-            }
-          });
-
-          // 5. 计算推荐得分
-          scoredRecipes = this.calculateRecommendationScores(candidateRecipes, userPreferences);
-        }
-
-        // 6. 使用分层随机抽样生成本次会话的推荐序列
-        this.recommendationSessionCache = this.layeredRandomSampling(scoredRecipes, isPopularityOnly);
-        console.info(`[APIService] 生成新的推荐会话，共${this.recommendationSessionCache.length}个推荐`);
+      if (!this._isLoggedIn) {
+        return {
+          recommendations: [],
+          message: '请先登录以获取个性化推荐'
+        };
       }
 
-      // 7. 从缓存中分页获取
+      // 1. 获取用户的点赞和收藏数据
+      const userInteractions = await this.getUserInteractions();
+      if (userInteractions.length === 0) {
+        return {
+          recommendations: [],
+          message: '您还没有点赞或收藏任何配方，无法生成推荐'
+        };
+      }
+
+      // 2. 分析用户偏好
+      const userPreferences = this.analyzeUserPreferences(userInteractions);
+
+      // 3. 获取所有候选配方（调用recipes接口）
+      const allRecipesData: object = await this.getAllRecipes();
+      const recipesResponse = allRecipesData as LocalRecipesResponse;
+      if (!recipesResponse || !recipesResponse.recipes) {
+        throw new APIError('获取配方数据失败', 'FETCH_FAILED');
+      }
+
+      // 4. 过滤掉用户已交互的配方
+      const candidateRecipes: RecipeData[] = [];
+      recipesResponse.recipes.forEach((recipe: RecipeData) => {
+        if (!userPreferences.interactedRecipeIds.has(recipe.id)) {
+          candidateRecipes.push(recipe);
+        }
+      });
+
+      // 5. 计算推荐得分
+      const scoredRecipes: ScoredRecipe[] = this.calculateRecommendationScores(candidateRecipes, userPreferences);
+
+      // 6. 排序并应用分页
+      scoredRecipes.sort((a: ScoredRecipe, b: ScoredRecipe) => b.totalScore - a.totalScore);
       const startIndex = (page - 1) * limit;
       const endIndex = startIndex + limit;
       const paginatedRecipes: ScoredRecipe[] = [];
-      for (let i = startIndex; i < Math.min(endIndex, this.recommendationSessionCache.length); i++) {
-        paginatedRecipes.push(this.recommendationSessionCache[i]);
+      for (let i = startIndex; i < Math.min(endIndex, scoredRecipes.length); i++) {
+        paginatedRecipes.push(scoredRecipes[i]);
       }
 
-      // 8. 格式化返回数据
+      // 7. 格式化返回数据
       const recommendations: RecommendationResult[] = [];
       paginatedRecipes.forEach((recipe: ScoredRecipe) => {
         recommendations.push(this.formatRecommendation(recipe));
       });
 
-      const totalPages = Math.ceil(this.recommendationSessionCache.length / limit);
-      console.info(`[APIService] 推荐加载成功: 第${page}页/${totalPages}页, ${recommendations.length}条`);
-      
+      console.info(`[APIService] 推荐加载成功: 第${page}页, ${recommendations.length}条`);
       return {
         recommendations,
         pagination: {
           currentPage: page,
-          totalPages: totalPages,
-          totalRecommendations: this.recommendationSessionCache.length,
+          totalPages: Math.ceil(scoredRecipes.length / limit),
+          totalRecommendations: scoredRecipes.length,
           limit: limit,
-          hasMore: page < totalPages
+          hasMore: page < Math.ceil(scoredRecipes.length / limit)
         }
       };
 
@@ -1159,60 +1136,6 @@ export default class APIService {
       const scoredRecipe: ScoredRecipe = {
         id: recipe.id,
         name: recipe.name,
-        image: recipe.image,
-        description: recipe.description,
-        estimatedAbv: recipe.estimatedAbv,
-        createdBy: recipe.createdBy,
-        ingredients: recipe.ingredients,
-        likeCount: recipe.likeCount,
-        favoriteCount: recipe.favoriteCount,
-        scores: scores,
-        totalScore: totalScore,
-        matchReasons: matchReasons
-      };
-      
-      results.push(scoredRecipe);
-    });
-    
-    return results;
-  }
-
-  /**
-   * 仅基于人气得分计算推荐（无用户交互数据时使用）
-   */
-  private calculatePopularityOnlyScores(recipes: RecipeData[]): ScoredRecipe[] {
-    const results: ScoredRecipe[] = [];
-    
-    recipes.forEach((recipe: RecipeData) => {
-      const scores: RecommendationScores = {
-        ingredientMatch: 0,
-        creatorMatch: 0,
-        abvMatch: 0,
-        popularity: 0
-      };
-      const matchReasons: string[] = [];
-
-      // 仅计算人气得分 (权重 10，作为唯一指标)
-      const totalInteractions = (recipe.likeCount || 0) + (recipe.favoriteCount || 0);
-      if (totalInteractions > 0) {
-        scores.popularity = Math.min(10, 10 * Math.log(1 + totalInteractions / 10));
-        if (totalInteractions > 5) {
-          matchReasons.push(`热门配方 (已有${totalInteractions}次👍&⭐)`);
-        }
-      }
-
-      // 添加默认推荐理由
-      if (matchReasons.length === 0) {
-        matchReasons.push('为您精选的配方');
-      }
-
-      const totalScore = scores.popularity;
-
-      const scoredRecipe: ScoredRecipe = {
-        id: recipe.id,
-        name: recipe.name,
-        image: recipe.image,
-        description: recipe.description,
         estimatedAbv: recipe.estimatedAbv,
         createdBy: recipe.createdBy,
         ingredients: recipe.ingredients,
@@ -1233,11 +1156,7 @@ export default class APIService {
    * 格式化推荐结果
    */
   private formatRecommendation(recipe: ScoredRecipe): RecommendationResult {
-    // 判断是否为仅人气推荐（其他得分都为0时）
-    const isPopularityOnly = recipe.scores.ingredientMatch === 0 && 
-                             recipe.scores.creatorMatch === 0 && 
-                             recipe.scores.abvMatch === 0;
-    const maxPossibleScore = isPopularityOnly ? 10 : (4 + 3 + 2 + 1.5); // 总权重
+    const maxPossibleScore = 4 + 3 + 2 + 1.5; // 总权重
     const matchPercentage = Math.min(100, Math.round((recipe.totalScore / maxPossibleScore) * 100));
 
     let reasons: string[] = [];
@@ -1252,8 +1171,6 @@ export default class APIService {
     const result: RecommendationResult = {
       id: recipe.id,
       name: recipe.name,
-      image: recipe.image,
-      description: recipe.description,
       estimatedAbv: recipe.estimatedAbv,
       matchPercentage: matchPercentage,
       reason: reasonText,
@@ -1261,131 +1178,6 @@ export default class APIService {
       likeCount: recipe.likeCount || 0
     };
 
-    return result;
-  }
-
-  /**
-   * 重置推荐会话（下拉刷新时调用）
-   * 清空缓存，下次获取推荐时会重新随机分层抽取
-   */
-  public resetRecommendationSession(): void {
-    this.recommendationSessionCache = [];
-    this.recommendationSessionSeed = Date.now();
-    console.info('[APIService] 推荐会话已重置，将重新随机分层抽取');
-  }
-
-  /**
-   * 使用种子的伪随机数生成器
-   */
-  private seededRandom(seed: number): () => number {
-    let currentSeed = seed;
-    return (): number => {
-      currentSeed = (currentSeed * 1103515245 + 12345) & 0x7fffffff;
-      return currentSeed / 0x7fffffff;
-    };
-  }
-
-  /**
-   * 使用Fisher-Yates算法打乱数组（带种子）
-   */
-  private shuffleArrayWithSeed<T>(array: T[], seed: number): T[] {
-    const result = [...array];
-    const random = this.seededRandom(seed);
-    for (let i = result.length - 1; i > 0; i--) {
-      const j = Math.floor(random() * (i + 1));
-      const temp = result[i];
-      result[i] = result[j];
-      result[j] = temp;
-    }
-    return result;
-  }
-
-  /**
-   * 将推荐结果按排名分层
-   * 先按得分排序，然后按排名位置分为三层：
-   * 高匹配层：排名前1/3、中匹配层：排名中间1/3、低匹配层：排名后1/3
-   */
-  private tierRecommendations(scoredRecipes: ScoredRecipe[], isPopularityOnly: boolean): Map<string, ScoredRecipe[]> {
-    const tiers = new Map<string, ScoredRecipe[]>();
-    tiers.set('high', []);
-    tiers.set('medium', []);
-    tiers.set('low', []);
-
-    // 先按得分降序排序
-    const sortedRecipes = [...scoredRecipes].sort((a, b) => b.totalScore - a.totalScore);
-    const totalCount = sortedRecipes.length;
-    
-    if (totalCount === 0) {
-      return tiers;
-    }
-
-    // 按排名分层：前1/3为高，中间1/3为中，后1/3为低
-    const highCutoff = Math.ceil(totalCount / 3);
-    const mediumCutoff = Math.ceil(totalCount * 2 / 3);
-
-    sortedRecipes.forEach((recipe: ScoredRecipe, index: number) => {
-      if (index < highCutoff) {
-        tiers.get('high')!.push(recipe);
-      } else if (index < mediumCutoff) {
-        tiers.get('medium')!.push(recipe);
-      } else {
-        tiers.get('low')!.push(recipe);
-      }
-    });
-
-    console.info(`[APIService] 按排名分层: 总${totalCount}个, 高${tiers.get('high')!.length}个, 中${tiers.get('medium')!.length}个, 低${tiers.get('low')!.length}个`);
-    return tiers;
-  }
-
-  /**
-   * 分层随机抽样生成推荐列表
-   * 每页从各层按比例随机抽取：高层50%，中层35%，低层15%
-   */
-  private layeredRandomSampling(scoredRecipes: ScoredRecipe[], isPopularityOnly: boolean): ScoredRecipe[] {
-    // 使用当前会话种子进行分层
-    const tiers = this.tierRecommendations(scoredRecipes, isPopularityOnly);
-    
-    // 打乱每个层级内部的顺序
-    const shuffledHigh = this.shuffleArrayWithSeed(tiers.get('high')!, this.recommendationSessionSeed);
-    const shuffledMedium = this.shuffleArrayWithSeed(tiers.get('medium')!, this.recommendationSessionSeed + 1);
-    const shuffledLow = this.shuffleArrayWithSeed(tiers.get('low')!, this.recommendationSessionSeed + 2);
-
-    // 按比例交替抽取，形成最终列表
-    // 策略：每5个位置分配为 [高, 高, 高, 中, 中, 中, 低, 低, 中, 高] 的循环模式
-    const result: ScoredRecipe[] = [];
-    let highIndex = 0;
-    let mediumIndex = 0;
-    let lowIndex = 0;
-
-    // 定义抽取模式：0=高, 1=中, 2=低
-    const pattern = [0, 0, 1, 0, 1, 0, 2, 1, 1, 2];
-    let patternIndex = 0;
-
-    const totalCount = shuffledHigh.length + shuffledMedium.length + shuffledLow.length;
-
-    while (result.length < totalCount) {
-      const tier = pattern[patternIndex % pattern.length];
-      patternIndex++;
-
-      if (tier === 0 && highIndex < shuffledHigh.length) {
-        result.push(shuffledHigh[highIndex++]);
-      } else if (tier === 1 && mediumIndex < shuffledMedium.length) {
-        result.push(shuffledMedium[mediumIndex++]);
-      } else if (tier === 2 && lowIndex < shuffledLow.length) {
-        result.push(shuffledLow[lowIndex++]);
-      } else {
-        // 当前层已用完，尝试从其他层抽取
-        if (highIndex < shuffledHigh.length) {
-          result.push(shuffledHigh[highIndex++]);
-        } else if (mediumIndex < shuffledMedium.length) {
-          result.push(shuffledMedium[mediumIndex++]);
-        } else if (lowIndex < shuffledLow.length) {
-          result.push(shuffledLow[lowIndex++]);
-        }
-      }
-    }
-
-    console.info(`[APIService] 分层随机抽样完成: 高匹配${shuffledHigh.length}个, 中匹配${shuffledMedium.length}个, 低匹配${shuffledLow.length}个`);
     return result;
   }
   
@@ -1825,23 +1617,46 @@ export default class APIService {
     if (!this.isLoggedIn) {
       throw new APIError('请先登录', 'AUTH_REQUIRED');
     }
-    
+
     const httpRequest = http.createHttp();
     try {
-      const url = `${this.baseURL}/api/recipes`;
+      // 与带图接口保持一致的自定义配方端点
+      const url = `${this.baseURL}/api/custom/cocktails`;
+
+      const name: string = Reflect.get(recipeData as ESObject, 'name') as string;
+      const description: string = (Reflect.get(recipeData as ESObject, 'description') as string) || '';
+      const estimatedAbvValue: ESObject = Reflect.get(recipeData as ESObject, 'estimatedAbv') as ESObject;
+      const ingredientsValue: ESObject = Reflect.get(recipeData as ESObject, 'ingredients') as ESObject;
+      const stepsValue: ESObject = Reflect.get(recipeData as ESObject, 'steps') as ESObject;
+      const instructions: string = (Reflect.get(recipeData as ESObject, 'instructions') as string) || '';
+
+      const body: UpdateRecipeRequestBody = {
+        name: name,
+        description: description,
+        estimatedAbv: String(estimatedAbvValue),
+        ingredients: JSON.stringify(ingredientsValue),
+        steps: JSON.stringify(stepsValue || []),
+        instructions: instructions
+      };
+
       const requestOptions = this.createRequestOptions(
         http.RequestMethod.POST,
-        undefined,
-        recipeData
+        { contentType: 'application/json' },
+        body
       );
+      requestOptions.connectTimeout = 60000;
+      requestOptions.readTimeout = 60000;
+
       const response = await httpRequest.request(url, requestOptions);
       
       if (response.responseCode === 201 || response.responseCode === 200) {
-        console.info('[APIService] 创建配方成功');
+        console.info('[APIService] 创建配方成功 (无图)');
+        if (typeof response.result === 'string') {
+          return JSON.parse(response.result) as object;
+        }
         return response.result as object;
-      } else {
-        throw new APIError(`创建配方失败 (${response.responseCode})`, 'CREATE_FAILED');
       }
+      throw new APIError(`创建配方失败 (${response.responseCode})`, 'CREATE_FAILED');
     } catch (error) {
       console.error('[APIService] 创建配方失败:', error);
       if (error instanceof APIError) {
@@ -2155,32 +1970,15 @@ export default class APIService {
    * AI口味分析
    */
   async analyzeRecipeFlavor(recipeId: string): Promise<AIAnalysisResponse> {
-    // 首先获取配方详情
-    const recipeDetail = await this.fetchRecipeDetail(recipeId);
-    
     const httpRequest = http.createHttp();
-    const url = `${this.baseURL}/api/custom/analyze-flavor`;
+    const url = `${this.baseURL}/api/recipes/${recipeId}/ai-analyze`;
     
     try {
-      // 从配方详情中提取数据
-      const name = Reflect.get(recipeDetail, 'name') as string || '';
-      const description = Reflect.get(recipeDetail, 'description') as string || '';
-      const ingredients = Reflect.get(recipeDetail, 'ingredients') as Array<object> || [];
-      const instructions = Reflect.get(recipeDetail, 'instructions') as string || '';
-      const steps = instructions ? instructions.split('\n') : [];
-      
-      // 构建请求体
-      const requestBody: AIAnalyzeRequest = {
-        name: name,
-        description: description,
-        ingredients: ingredients,
-        steps: steps
-      };
-      
+      const emptyBody: EmptyRequest = {};
       const requestOptions = this.createRequestOptions(
         http.RequestMethod.POST,
         { contentType: 'application/json' },
-        requestBody
+        emptyBody
       );
       requestOptions.connectTimeout = 30000;
       requestOptions.readTimeout = 60000;
@@ -2518,14 +2316,6 @@ interface SaveRatingsRequest {
 // 空请求体接口
 interface EmptyRequest {
   placeholder?: string;
-}
-
-// AI分析请求体接口
-interface AIAnalyzeRequest {
-  name: string;
-  description: string;
-  ingredients: Array<object>;
-  steps: Array<string>;
 }
 
 // AI配方请求接口
