@@ -109,6 +109,7 @@ export struct UserProfilePage {
   @State favoritesError: string = '';
   @State myRecipesError: string = '';
   @State loginStatusDebug: string = '';
+  @State deletingRecipeId: string = '';
 
   // 懒加载标志 - 标记数据是否已加载过
   private hasLoadedRecipes: boolean = false;
@@ -290,6 +291,35 @@ export struct UserProfilePage {
     this.recipesDataSource.clear();
     this.likesDataSource.clear();
     this.favoritesDataSource.clear();
+  }
+
+  // 删除自己创建的配方
+  private async deleteMyRecipe(recipe: Recipe): Promise<void> {
+    if (this.deletingRecipeId === recipe.id) {
+      return;
+    }
+
+    this.deletingRecipeId = recipe.id;
+    try {
+      const apiService = APIService.getInstance();
+      const ok = await apiService.deleteCustomRecipe(recipe.id);
+      if (ok) {
+        const remaining = this.recipesDataSource.getAllData().filter(r => r.id !== recipe.id);
+        this.recipesDataSource.setData(remaining);
+        this.myRecipesCount = remaining.length;
+        promptAction.showToast({ message: '已删除' });
+        // 删除后强制刷新当前 Tab，确保列表与计数同步
+        await this.refreshCurrentTab(true);
+      } else {
+        promptAction.showToast({ message: '删除失败，请重试' });
+      }
+    } catch (error) {
+      console.error('[UserProfilePage] 删除配方失败:', error);
+      const msg = error instanceof Error ? error.message : '删除失败';
+      promptAction.showToast({ message: msg });
+    } finally {
+      this.deletingRecipeId = '';
+    }
   }
 
   // 解析数字
@@ -1047,6 +1077,18 @@ export struct UserProfilePage {
         if (this.currentTab === ProfileTab.RECIPES) {
           Row() {
             Blank()
+            Button(this.deletingRecipeId === recipe.id ? '删除中...' : '删除')
+              .type(ButtonType.Capsule)
+              .height(26)
+              .fontSize(12)
+              .backgroundColor('rgba(255, 59, 48, 0.12)')
+              .fontColor('#FF3B30')
+              .padding({ left: 12, right: 12 })
+              .enabled(this.deletingRecipeId !== recipe.id)
+              .onClick(() => {
+                this.deleteMyRecipe(recipe);
+              })
+
             Button('编辑')
               .type(ButtonType.Capsule)
               .height(26)

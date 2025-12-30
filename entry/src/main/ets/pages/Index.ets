@@ -8,6 +8,7 @@ import { UserProfilePage } from './UserProfilePage';
 import { ThemeManager, LightTheme, DarkTheme } from '../common/ThemeManager';
 import { SettingsManager, AppearanceMode } from './SettingsPage';
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
+import { router } from '@kit.ArkUI';
 
 // 初始化主题存储
 ThemeManager.initializeStorage();
@@ -24,6 +25,7 @@ struct Index {
   aboutToAppear() {
     // 初始化设置管理器并加载主题
     this.initializeTheme();
+    this.applyRouterParams();
   }
   
   private async initializeTheme() {
@@ -45,6 +47,20 @@ struct Index {
   // 获取当前主题色
   private getColors() {
     return this.isDarkMode ? DarkTheme : LightTheme;
+  }
+
+  private applyRouterParams() {
+    try {
+      const params: ESObject = router.getParams() as ESObject;
+      if (params) {
+        const targetTab = params['targetTab'] as number;
+        if (typeof targetTab === 'number' && targetTab >= 0) {
+          this.currentTabIndex = targetTab;
+        }
+      }
+    } catch (error) {
+      console.error('[Index] 读取路由参数失败:', error);
+    }
   }
   
   @Builder

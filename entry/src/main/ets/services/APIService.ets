@@ -1925,13 +1925,13 @@ export default class APIService {
   // 更新配方（带图片，multipart）
   public async updateRecipeWithImage(context: common.UIAbilityContext, recipeId: string, recipeData: object, imagePath: string, imageFileName: string): Promise<object> {
     try {
-      // 使用 POST + method override 以规避 RequestKit 对 PUT 的上传限制
-      const url = `${this.baseURL}/api/custom/cocktails/${recipeId}?_method=PUT`;
+      // 直接命中后端为鸿蒙兼容的 POST 更新接口
+      const url = `${this.baseURL}/api/custom/cocktails/${recipeId}/update`;
       const internalUri = `internal://cache/${imageFileName}`;
       console.info(`[APIService] 更新配方图片: absolute=${imagePath}, internal=${internalUri}`);
 
       const files: Array<request.File> = [{
-        filename: 'image.jpg',
+        filename: imageFileName && imageFileName.length > 0 ? imageFileName : 'image.jpg',
         name: 'image',
         uri: internalUri,
         type: 'image/jpeg'
@@ -1948,7 +1948,7 @@ export default class APIService {
 
       const uploadConfig: request.UploadConfig = {
         url: url,
-        header: { 'Cookie': this.authCookie, 'X-HTTP-Method-Override': 'PUT' },
+        header: { 'Cookie': this.authCookie },
         method: 'POST',
         files: files,
         data: data
@@ -1969,6 +1969,25 @@ export default class APIService {
         throw error;
       }
       throw new APIError('未知错误: ' + JSON.stringify(error));
+    }
+  }
+
+  // 删除自定义配方（DELETE 优先，POST 兼容鸿蒙端点）
+  public async deleteCustomRecipe(recipeId: string): Promise<boolean> {
+    try {
+      const deleteUrl = `${this.baseURL}/api/custom/cocktails/${recipeId}`;
+      const deleteResp = await http.createHttp().request(deleteUrl, this.createRequestOptions(http.RequestMethod.DELETE));
+      if (deleteResp.responseCode === 200) {
+        return true;
+      }
+
+      // 兼容后端提供的 POST 删除接口
+      const postUrl = `${this.baseURL}/api/custom/cocktails/${recipeId}/delete`;
+      const postResp = await http.createHttp().request(postUrl, this.createRequestOptions(http.RequestMethod.POST));
+      return postResp.responseCode === 200;
+    } catch (error) {
+      console.error('[APIService] 删除自定义配方失败:', error);
+      return false;
     }
   }
   

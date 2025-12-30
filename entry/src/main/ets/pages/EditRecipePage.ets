@@ -742,6 +742,9 @@ export struct EditRecipePage {
       const currentTrigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
       AppStorage.setOrCreate<number>('recipesRefreshTrigger', currentTrigger + 1);
       console.info('[CustomRecipe] 已触发配方列表刷新');
+
+      // 自动返回上一页以便列表/详情刷新
+      router.back();
     } catch (error) {
       console.error('[CustomRecipe] 保存失败:', error);
       const message = error instanceof Error ? error.message : '保存失败';
@@ -1070,6 +1073,9 @@ export struct EditRecipePage {
                 .height(200)
                 .objectFit(ImageFit.Cover)
                 .borderRadius(8)
+                .onClick(() => {
+                  this.selectCocktailImage();
+                })
               
               // 删除按钮
               Button() {

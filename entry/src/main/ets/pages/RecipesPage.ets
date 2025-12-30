@@ -26,6 +26,23 @@ interface SortOption {
   name: string;
 }
 
+interface InteractionUpdatePayload {
+  id: string;
+  likeCount: number;
+  favoriteCount: number;
+  isLiked: boolean;
+  isFavorited: boolean;
+  updatedAt?: number;
+}
+
+interface InteractionSnapshot {
+  id: string;
+  likeCount: number;
+  favoriteCount: number;
+  isLiked?: boolean;
+  isFavorited?: boolean;
+}
+
 class BasicDataSource implements IDataSource {
   private listeners: DataChangeListener[] = [];
   private originDataArray: Recipe[] = [];
@@ -95,6 +112,7 @@ class BasicDataSource implements IDataSource {
   }
 }
 
+@Entry
 @Component
 export struct RecipesPage {
   @State recipesDataSource: BasicDataSource = new BasicDataSource();
@@ -105,6 +123,7 @@ export struct RecipesPage {
   @State errorMessage: string = '';
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
   @StorageLink('recipesRefreshTrigger') @Watch('onRefreshTrigger') refreshTrigger: number = 0;
+  @StorageLink('lastRecipeInteraction') @Watch('onInteractionUpdate') interactionUpdate: InteractionUpdatePayload | null = null;
   
   // 筛选相关状态
   @State selectedCategory: string = 'all';     // 当前选中的基酒分类
@@ -152,9 +171,31 @@ export struct RecipesPage {
     this.refresh();
   }
 
+  // 点赞/收藏本地同步
+  onInteractionUpdate() {
+    if (!this.interactionUpdate) {
+      return;
+    }
+    this.applyInteractionUpdate(this.interactionUpdate as InteractionUpdatePayload);
+  }
+
   aboutToAppear(): void {
     if (this.recipesDataSource.totalCount() === 0) {
       this.fetchRecipes(true);
+    }
+    // 回到列表时若有最近交互，立即同步本地显示
+    if (this.interactionUpdate) {
+      this.applyInteractionUpdate(this.interactionUpdate);
+    }
+  }
+
+  // 页面重新可见时也强制同步一次并刷新，保持与用户中心同样的“返回即最新”体验
+  onPageShow(): void {
+    if (this.interactionUpdate) {
+      this.applyInteractionUpdate(this.interactionUpdate);
+    }
+    if (!this.isLoading) {
+      this.refresh();
     }
   }
 
@@ -170,16 +211,24 @@ export struct RecipesPage {
     this.errorMessage = '';
     
     try {
-      const result: object = await apiService.fetchRecipes(
+      const result: RecipesResponse = await apiService.fetchRecipes(
         this.currentPage,
         this.pageSize,
         '',
         this.sortType
-      );
+      ) as RecipesResponse;
       
-      const response: RecipesResponse = result as RecipesResponse;
-      const newRecipes: Array<Recipe> = response.recipes || [];
+      const newRecipes: Array<Recipe> = result.recipes || [];
       console.info('[RecipesPage] 获取到的配方数量:', newRecipes.length);
+      // 调试：输出服务器返回的每个配方的点赞/收藏数据
+      const snapshot: InteractionSnapshot[] = newRecipes.map((r: Recipe): InteractionSnapshot => ({
+        id: String(r.id),
+        likeCount: r.likeCount,
+        favoriteCount: r.favoriteCount,
+        isLiked: r.isLiked,
+        isFavorited: r.isFavorited
+      }));
+      console.info('[RecipesPage] 服务端交互数据快照 JSON:', JSON.stringify(snapshot));
       
       // 前端进行分类和酒精度过滤
       const filteredRecipes = this.filterRecipes(newRecipes);
@@ -192,9 +241,14 @@ export struct RecipesPage {
         this.recipesDataSource.addData(filteredRecipes);
         this.allRecipes = this.allRecipes.concat(newRecipes);
       }
+
+      // 拉取完成后同步最近一次交互，防止后端响应未带最新状态
+      if (this.interactionUpdate) {
+        this.applyInteractionUpdate(this.interactionUpdate);
+      }
       
-      this.currentPage = response.currentPage + 1;
-      this.totalPages = response.totalPages;
+      this.currentPage = result.currentPage + 1;
+      this.totalPages = result.totalPages;
       
     } catch (error) {
       console.error('[RecipesPage] Fetch failed:', error);
@@ -288,15 +342,59 @@ export struct RecipesPage {
   // 排序切换
   private onSortChange(sortId: string): void {
     this.sortType = sortId;
-    setTimeout(() => {
     this.fetchRecipes(true);
-  }, 50);
   }
   
   // 应用筛选
   private applyFilters(): void {
     const filtered = this.filterRecipes(this.allRecipes);
     this.recipesDataSource.setData(filtered);
+  }
+
+  // 从存储的交互事件同步本地列表
+  private applyInteractionUpdate(payload: InteractionUpdatePayload): void {
+    try {
+      const targetId = String(payload.id || '');
+      if (!targetId || this.allRecipes.length === 0) return;
+
+      const likeCount = this.parseNumberSafe(payload.likeCount);
+      const favoriteCount = this.parseNumberSafe(payload.favoriteCount);
+      const isLiked = payload.isLiked ? true : false;
+      const isFavorited = payload.isFavorited ? true : false;
+
+      const updatedAll: Recipe[] = [];
+      for (let i = 0; i < this.allRecipes.length; i++) {
+        const item: Recipe = this.allRecipes[i];
+        const currentId = String(item.id || '');
+        if (currentId === targetId) {
+          if (likeCount >= 0) {
+            item.likeCount = likeCount;
+          }
+          if (favoriteCount >= 0) {
+            item.favoriteCount = favoriteCount;
+          }
+          item.isLiked = isLiked;
+          item.isFavorited = isFavorited;
+        }
+        updatedAll.push(item);
+      }
+
+      this.allRecipes = updatedAll;
+      this.applyFilters();
+    } catch (e) {
+      console.error('[RecipesPage] 本地交互同步失败:', e);
+    }
+  }
+
+  private parseNumberSafe(value: string | number | null | undefined): number {
+    if (value === null || value === undefined) {
+      return -1;
+    }
+    if (typeof value === 'number') {
+      return value;
+    }
+    const parsed: number = parseFloat(value);
+    return parsed === parsed ? parsed : -1; // NaN 自身不等于自身
   }
   
   // 重置筛选

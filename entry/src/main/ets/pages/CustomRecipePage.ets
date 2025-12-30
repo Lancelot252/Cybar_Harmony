@@ -585,6 +585,11 @@ export struct CustomRecipePage {
       const currentTrigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
       AppStorage.setOrCreate<number>('recipesRefreshTrigger', currentTrigger + 1);
       console.info('[CustomRecipe] 已触发配方列表刷新');
+
+      // 跳转回主入口并切换到配方Tab，保持底部导航
+      router.replaceUrl({ url: 'pages/Index', params: { targetTab: 1 } }).catch((e: Error) => {
+        console.error('[CustomRecipe] 跳转配方列表失败:', e);
+      });
       
       // 清空表单并重置状态，确保步骤区也被清空
       this.removeCocktailImage(); // 清理图片

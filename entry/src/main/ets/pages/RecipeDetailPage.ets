@@ -6,6 +6,7 @@
 import APIService from '../services/APIService';
 import { Recipe, Ingredient } from '../models/Recipe';
 import { router } from '@kit.ArkUI';
+import display from '@ohos.display';
 import promptAction from '@ohos.promptAction';
 
 /**
@@ -90,6 +91,7 @@ struct RecipeDetailPage {
   @State showAIAnalysis: boolean = false;
   @State aiAnalysisText: string = '';
   private readonly DEFAULT_WINE_IMAGE: string = '/uploads/cocktails/jiu.jpg';
+  private analysisFontSize: number = 16;
 
   aboutToAppear() {
     // 从路由参数获取 recipeId
@@ -97,6 +99,19 @@ struct RecipeDetailPage {
     if (params && params.recipeId) {
       this.recipeId = params.recipeId;
       console.info(`[RecipeDetailPage] aboutToAppear - recipeId from router: ${this.recipeId}`);
+
+      // 根据屏幕宽度动态调整分析字体大小，直接用 Text 组件放大字号
+      try {
+        const disp = display.getDefaultDisplaySync();
+        const density = disp.densityPixels || 1;
+        const vpWidth = disp.width / density;
+        // 略小一档：范围 16-20vp，按屏宽折算
+        const size = Math.min(20, Math.max(16, vpWidth / 7));
+        this.analysisFontSize = size;
+      } catch (error) {
+        console.warn('[RecipeDetailPage] failed to get display info, fallback font size');
+        this.analysisFontSize = 18;
+      }
       
       // 检查登录状态
       this.isLoggedIn = APIService.getInstance().isLoggedIn;
@@ -467,6 +482,20 @@ struct RecipeDetailPage {
         if (favoriteCountValue !== undefined && favoriteCountValue !== null) {
           this.favoriteCount = this.parseNumber(favoriteCountValue);
         }
+
+        // 通知列表刷新点赞/收藏状态
+        const trigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
+        AppStorage.setOrCreate<number>('recipesRefreshTrigger', trigger + 1);
+
+        // 推送本地交互同步
+        AppStorage.setOrCreate('lastRecipeInteraction', {
+          id: this.recipeId,
+          likeCount: this.likeCount,
+          favoriteCount: this.favoriteCount,
+          isLiked: this.isLiked,
+          isFavorited: this.isFavorited,
+          updatedAt: Date.now()
+        });
       }
       
       console.info(`[RecipeDetailPage] 点赞成功 id=${this.recipeId}, isLiked=${this.isLiked}`);
@@ -521,6 +550,20 @@ struct RecipeDetailPage {
         if (likeCountValue !== undefined && likeCountValue !== null) {
           this.likeCount = this.parseNumber(likeCountValue);
         }
+
+        // 通知列表刷新点赞/收藏状态
+        const trigger: number = (AppStorage.get<number>('recipesRefreshTrigger') as number) || 0;
+        AppStorage.setOrCreate<number>('recipesRefreshTrigger', trigger + 1);
+
+        // 推送本地交互同步
+        AppStorage.setOrCreate('lastRecipeInteraction', {
+          id: this.recipeId,
+          likeCount: this.likeCount,
+          favoriteCount: this.favoriteCount,
+          isLiked: this.isLiked,
+          isFavorited: this.isFavorited,
+          updatedAt: Date.now()
+        });
       }
       
       console.info(`[RecipeDetailPage] 收藏成功 id=${this.recipeId}, isFavorited=${this.isFavorited}`);
@@ -1584,6 +1627,17 @@ struct RecipeDetailPage {
     return colorMap[hex] || hex;
   }
 
+  private markdownToPlainText(text: string): string {
+    if (!text) {
+      return '';
+    }
+    // 简单去除粗体/斜体/代码标记，保留换行
+    let plain = text.replace(/\*\*(.+?)\*\*/g, '$1');
+    plain = plain.replace(/\*(.+?)\*/g, '$1');
+    plain = plain.replace(/`(.+?)`/g, '$1');
+    return plain;
+  }
+
   /**
    * 构建AI分析结果面板
    */
@@ -1637,32 +1691,6 @@ struct RecipeDetailPage {
           .borderRadius(12)
           
           if (this.aiAnalysisText) {
-            // 综合评分建议区域
-            Column({ space: 16 }) {
-              Row() {
-                Text('📊')
-                  .fontSize(18)
-                Text(' 综合评分建议')
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor('#333333')
-              }
-              .width('100%')
-              
-              Column({ space: 14 }) {
-                this.buildScoreBar('外观呈现', this.parseScoreFromText(this.aiAnalysisText, '外观呈现', 10), 10, '#FF6B6B', '🎨')
-                this.buildScoreBar('香气表现', this.parseScoreFromText(this.aiAnalysisText, '香气表现', 10), 10, '#4ECDC4', '👃')
-                this.buildScoreBar('风味平衡', this.parseScoreFromText(this.aiAnalysisText, '风味平衡', 10), 10, '#45B7D1', '👅')
-                this.buildScoreBar('口感体验', this.parseScoreFromText(this.aiAnalysisText, '口感体验', 10), 10, '#96CEB4', '💫')
-                this.buildScoreBar('余韵持久', this.parseScoreFromText(this.aiAnalysisText, '余韵持久', 10), 10, '#DDA0DD', '✨')
-              }
-              .width('100%')
-            }
-            .width('100%')
-            .padding(16)
-            .backgroundColor('#FAFAFA')
-            .borderRadius(16)
-            
             // 口味特征区域
             Column({ space: 16 }) {
               Row() {
@@ -1701,14 +1729,14 @@ struct RecipeDetailPage {
               }
               .width('100%')
               
-              Text(this.aiAnalysisText)
-                .fontSize(14)
-                .fontColor('#555555')
-                .lineHeight(24)
+              Text(this.markdownToPlainText(this.aiAnalysisText))
+                .fontSize(this.analysisFontSize)
+                .lineHeight(this.analysisFontSize * 1.6)
+                .fontColor('#222222')
                 .width('100%')
             }
             .width('100%')
-            .padding(16)
+            .padding(28)
             .backgroundColor(Color.White)
             .borderRadius(16)
             .border({ width: 1, color: '#E8E8E8' })
