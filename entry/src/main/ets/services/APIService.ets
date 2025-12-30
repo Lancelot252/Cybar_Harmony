@@ -849,20 +849,30 @@ export default class APIService {
         let scoredRecipes: ScoredRecipe[] = [];
         let isPopularityOnly = false;
         
+        // 获取当前用户名（用于过滤自己创建的配方）
+        const currentUsername = this._isLoggedIn && this._currentUser ? this._currentUser.username : '';
+        
         // 未登录或无用户交互数据时，使用人气得分推荐
         if (!this._isLoggedIn || userInteractions.length === 0) {
-          const candidateRecipes: RecipeData[] = recipesResponse.recipes;
+          // 过滤掉当前用户创建的配方
+          const candidateRecipes: RecipeData[] = [];
+          recipesResponse.recipes.forEach((recipe: RecipeData) => {
+            if (!currentUsername || recipe.createdBy !== currentUsername) {
+              candidateRecipes.push(recipe);
+            }
+          });
           scoredRecipes = this.calculatePopularityOnlyScores(candidateRecipes);
           isPopularityOnly = true;
-          console.info(`[APIService] 使用人气推荐模式 (登录状态: ${this._isLoggedIn}, 交互数据: ${userInteractions.length}条)`);
+          console.info(`[APIService] 使用人气推荐模式 (登录状态: ${this._isLoggedIn}, 交互数据: ${userInteractions.length}条, 过滤自创配方: ${currentUsername || '无'})`);
         } else {
           // 3. 分析用户偏好
           const userPreferences = this.analyzeUserPreferences(userInteractions);
 
-          // 4. 过滤掉用户已交互的配方
+          // 4. 过滤掉用户已交互的配方和自己创建的配方
           const candidateRecipes: RecipeData[] = [];
           recipesResponse.recipes.forEach((recipe: RecipeData) => {
-            if (!userPreferences.interactedRecipeIds.has(recipe.id)) {
+            const isOwnRecipe = currentUsername && recipe.createdBy === currentUsername;
+            if (!userPreferences.interactedRecipeIds.has(recipe.id) && !isOwnRecipe) {
               candidateRecipes.push(recipe);
             }
           });
