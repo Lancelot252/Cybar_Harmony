@@ -659,11 +659,15 @@ struct RecipeDetailPage {
     if (this.showComments) {
       this.buildCommentsOverlay();
     }
+    
+    // AI分析结果浮层
+    if (this.showAIAnalysis) {
+      this.buildAIAnalysisSheet();
+    }
   }
   .width('100%')
   .height('100%')
   .backgroundColor('#F5F5F5')
-    // 取消 bindSheet，改为自定义底部浮层
   }
 
   /**

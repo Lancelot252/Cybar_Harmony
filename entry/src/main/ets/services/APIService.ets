@@ -2155,15 +2155,32 @@ export default class APIService {
    * AI口味分析
    */
   async analyzeRecipeFlavor(recipeId: string): Promise<AIAnalysisResponse> {
+    // 首先获取配方详情
+    const recipeDetail = await this.fetchRecipeDetail(recipeId);
+    
     const httpRequest = http.createHttp();
-    const url = `${this.baseURL}/api/recipes/${recipeId}/ai-analyze`;
+    const url = `${this.baseURL}/api/custom/analyze-flavor`;
     
     try {
-      const emptyBody: EmptyRequest = {};
+      // 从配方详情中提取数据
+      const name = Reflect.get(recipeDetail, 'name') as string || '';
+      const description = Reflect.get(recipeDetail, 'description') as string || '';
+      const ingredients = Reflect.get(recipeDetail, 'ingredients') as Array<object> || [];
+      const instructions = Reflect.get(recipeDetail, 'instructions') as string || '';
+      const steps = instructions ? instructions.split('\n') : [];
+      
+      // 构建请求体
+      const requestBody: AIAnalyzeRequest = {
+        name: name,
+        description: description,
+        ingredients: ingredients,
+        steps: steps
+      };
+      
       const requestOptions = this.createRequestOptions(
         http.RequestMethod.POST,
         { contentType: 'application/json' },
-        emptyBody
+        requestBody
       );
       requestOptions.connectTimeout = 30000;
       requestOptions.readTimeout = 60000;
@@ -2501,6 +2518,14 @@ interface SaveRatingsRequest {
 // 空请求体接口
 interface EmptyRequest {
   placeholder?: string;
+}
+
+// AI分析请求体接口
+interface AIAnalyzeRequest {
+  name: string;
+  description: string;
+  ingredients: Array<object>;
+  steps: Array<string>;
 }
 
 // AI配方请求接口
