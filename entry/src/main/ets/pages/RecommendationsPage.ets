@@ -189,7 +189,7 @@ export struct RecommendationsPage {
     try {
       const apiService = APIService.getInstance();
       // reset为true时传入forceRefresh=true，触发重新随机分层抽样
-      const response: RecommendationsResponse = await apiService.fetchRecommendations(this.recommendPage, 10);
+      const response: RecommendationsResponse = await apiService.fetchRecommendations(this.recommendPage, 10, reset);
       
       console.info(`[RecommendationsPage] API响应:`, JSON.stringify(response));
       
