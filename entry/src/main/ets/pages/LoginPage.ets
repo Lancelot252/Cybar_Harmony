@@ -48,8 +48,6 @@ export struct LoginPage {
     }
   }
 
-  @State isPrivacyChecked: boolean = false;
-
   build() {
     Column() {
       // 1. 顶部导航栏 (关闭按钮)
@@ -165,80 +163,13 @@ export struct LoginPage {
               .enabled(!this.isLoading)
               .opacity(this.isLoading ? 0.7 : 1.0)
               .onClick(() => {
-                if (!this.isPrivacyChecked) {
-                  promptAction.showToast({ message: '请先阅读并同意协议' });
-                  return;
-                }
                 this.handleLogin();
               })
-
-            // 隐私协议勾选
-            Row({ space: 4 }) {
-              Checkbox({ name: 'privacy', group: 'privacy' })
-                .select(this.isPrivacyChecked)
-                .selectedColor('#007DFF')
-                .width(16)
-                .height(16)
-                .onChange((value: boolean) => {
-                  this.isPrivacyChecked = value;
-                })
-
-              Text() {
-                Span('我已阅读并同意').fontColor(this.getColors().textSecondary)
-                Span('《用户协议》').fontColor('#007DFF')
-                Span('和').fontColor(this.getColors().textSecondary)
-                Span('《隐私政策》').fontColor('#007DFF')
-              }
-              .fontSize(12)
-                .layoutWeight(1)
-            }
-            .width('100%')
-              .alignItems(VerticalAlign.Top)
-              .margin({ top: 0 })
           }
           .width('100%')
             .padding({ left: 32, right: 32 })
 
-          // 4. 底部其他登录方式
-          Column({ space: 20 }) {
-            Row() {
-              Divider().layoutWeight(1).color(this.getColors().divider)
-              Text('其他登录方式')
-                .fontSize(12)
-                .fontColor(this.getColors().textTertiary)
-                .margin({ left: 12, right: 12 })
-              Divider().layoutWeight(1).color(this.getColors().divider)
-            }
-            .width('100%')
-              .padding({ left: 40, right: 40 })
-
-            Row({ space: 40 }) {
-              // 微信 (模拟)
-              Column({ space: 8 }) {
-                Image($r('sys.symbol.person_crop_circle_fill_1')) // 暂用系统图标代替
-                  .width(44)
-                  .height(44)
-                  .fillColor('#09B83E')
-                  .backgroundColor(this.getColors().inputBackground)
-                  .borderRadius(22)
-                  .padding(8)
-                Text('微信').fontSize(10).fontColor(this.getColors().textSecondary)
-              }
-
-              // QQ (模拟)
-              Column({ space: 8 }) {
-                Image($r('sys.symbol.person_2_fill')) // 暂用系统图标代替
-                  .width(44)
-                  .height(44)
-                  .fillColor('#12B7F5')
-                  .backgroundColor(this.getColors().inputBackground)
-                  .borderRadius(22)
-                  .padding(8)
-                Text('QQ').fontSize(10).fontColor(this.getColors().textSecondary)
-              }
-            }
-          }
-          .margin({ top: 80, bottom: 40 })
+          // 4. 底部其他登录方式 (已移除)
         }
         .width('100%')
           .constraintSize({ minHeight: '100%' }) // 确保内容撑满

@@ -77,8 +77,6 @@ export struct RegisterPage {
     }
   }
 
-  @State isPrivacyChecked: boolean = false;
-
   build() {
     Column() {
       // 1. 顶部导航栏 (关闭按钮)
@@ -209,36 +207,9 @@ export struct RegisterPage {
               .enabled(!this.isLoading)
               .opacity(this.isLoading ? 0.7 : 1.0)
               .onClick(() => {
-                if (!this.isPrivacyChecked) {
-                  promptAction.showToast({ message: '请先阅读并同意协议' });
-                  return;
-                }
                 this.handleRegister();
               })
 
-            // 隐私协议勾选
-            // Row({ space: 4 }) {
-            //   Checkbox({ name: 'privacy_reg', group: 'privacy_reg' })
-            //     .select(this.isPrivacyChecked)
-            //     .selectedColor('#007DFF')
-            //     .width(16)
-            //     .height(16)
-            //     .onChange((value: boolean) => {
-            //       this.isPrivacyChecked = value;
-            //     })
-            //
-            //   Text() {
-            //     Span('我已阅读并同意').fontColor(this.getColors().textSecondary)
-            //     Span('《用户协议》').fontColor('#007DFF')
-            //     Span('和').fontColor(this.getColors().textSecondary)
-            //     Span('《隐私政策》').fontColor('#007DFF')
-            //   }
-            //   .fontSize(12)
-            //     .layoutWeight(1)
-            // }
-            // .width('100%')
-            //   .alignItems(VerticalAlign.Top)
-            //   .margin({ top: 0 })
           }
           .width('100%')
             .padding({ left: 32, right: 32 })
