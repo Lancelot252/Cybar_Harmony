@@ -1835,23 +1835,46 @@ export default class APIService {
     if (!this.isLoggedIn) {
       throw new APIError('请先登录', 'AUTH_REQUIRED');
     }
-    
+
     const httpRequest = http.createHttp();
     try {
-      const url = `${this.baseURL}/api/recipes`;
+      // 与带图接口保持一致的自定义配方端点
+      const url = `${this.baseURL}/api/custom/cocktails`;
+
+      const name: string = Reflect.get(recipeData as ESObject, 'name') as string;
+      const description: string = (Reflect.get(recipeData as ESObject, 'description') as string) || '';
+      const estimatedAbvValue: ESObject = Reflect.get(recipeData as ESObject, 'estimatedAbv') as ESObject;
+      const ingredientsValue: ESObject = Reflect.get(recipeData as ESObject, 'ingredients') as ESObject;
+      const stepsValue: ESObject = Reflect.get(recipeData as ESObject, 'steps') as ESObject;
+      const instructions: string = (Reflect.get(recipeData as ESObject, 'instructions') as string) || '';
+
+      const body: UpdateRecipeRequestBody = {
+        name: name,
+        description: description,
+        estimatedAbv: String(estimatedAbvValue),
+        ingredients: JSON.stringify(ingredientsValue),
+        steps: JSON.stringify(stepsValue || []),
+        instructions: instructions
+      };
+
       const requestOptions = this.createRequestOptions(
         http.RequestMethod.POST,
-        undefined,
-        recipeData
+        { contentType: 'application/json' },
+        body
       );
+      requestOptions.connectTimeout = 60000;
+      requestOptions.readTimeout = 60000;
+
       const response = await httpRequest.request(url, requestOptions);
       
       if (response.responseCode === 201 || response.responseCode === 200) {
-        console.info('[APIService] 创建配方成功');
+        console.info('[APIService] 创建配方成功 (无图)');
+        if (typeof response.result === 'string') {
+          return JSON.parse(response.result) as object;
+        }
         return response.result as object;
-      } else {
-        throw new APIError(`创建配方失败 (${response.responseCode})`, 'CREATE_FAILED');
       }
+      throw new APIError(`创建配方失败 (${response.responseCode})`, 'CREATE_FAILED');
     } catch (error) {
       console.error('[APIService] 创建配方失败:', error);
       if (error instanceof APIError) {
