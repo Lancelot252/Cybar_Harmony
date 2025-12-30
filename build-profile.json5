@@ -1,10 +1,24 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\dings\\.ohos\\config\\default_Cybar_Harmony_GDsqHhzNbigEgmNNA5iP7KEl0oxt7M_8nwBkJHz2EpE=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B29D24E308B5F7A80521E8E814791E9C6DD75037F40BC50B4B1BFD8AEF810EDD5A1F26CF8B20F75",
+          "profile": "C:\\Users\\dings\\.ohos\\config\\default_Cybar_Harmony_GDsqHhzNbigEgmNNA5iP7KEl0oxt7M_8nwBkJHz2EpE=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\dings\\.ohos\\config\\default_Cybar_Harmony_GDsqHhzNbigEgmNNA5iP7KEl0oxt7M_8nwBkJHz2EpE=.p12",
+          "storePassword": "0000001B8920B2245D72E6AB4295E481D50958A3AF3B746739D4D7F20EFC9C6F9BD742D032DB1CF2863B85"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
-        "signingConfig": "",
+        "signingConfig": "default",
         "targetSdkVersion": "5.0.0(12)",
         "compatibleSdkVersion": "5.0.0(12)",
         "runtimeOS": "HarmonyOS",

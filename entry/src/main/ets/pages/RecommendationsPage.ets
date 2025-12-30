@@ -188,7 +188,8 @@ export struct RecommendationsPage {
     
     try {
       const apiService = APIService.getInstance();
-      const response: RecommendationsResponse = await apiService.fetchRecommendations(this.recommendPage, 10);
+      // reset为true时传入forceRefresh=true，触发重新随机分层抽样
+      const response: RecommendationsResponse = await apiService.fetchRecommendations(this.recommendPage, 10, reset);
       
       console.info(`[RecommendationsPage] API响应:`, JSON.stringify(response));
       
@@ -583,8 +584,8 @@ export struct RecommendationsPage {
   }
   
   /**
-   * 获取卡片比例 (3:4 和 1:1 混合)
-   */
+ * 获取卡片比例 (3:4 和 1:1 混合)
+ */
   private getCardRatio(index: number): number {
     // 每4个卡片中，前2个使用3:4，后2个使用1:1
     const pattern = index % 4;
@@ -603,15 +604,28 @@ struct RecommendedRecipeCard {
   @Prop showRecommendReason: boolean = true; // 是否显示推荐理由
   onTap?: () => void;
   
+  // 默认图片路径（与RecipesPage保持一致）
+  private readonly DEFAULT_WINE_IMAGE: string = '/uploads/cocktails/jiu.jpg';
+  
+  /**
+   * 获取配方图片URL（采用RecipesPage的模式，不使用状态避免闪烁）
+   */
+  private getImageSource(): string {
+    // 优先使用配方的图片，失败则用默认图片
+    const imagePath = this.recipe.image || this.DEFAULT_WINE_IMAGE;
+    return APIService.getInstance().getFullImageUrl(imagePath);
+  }
+  
   build() {
     Column() {
       // 图片区域
       Stack({ alignContent: Alignment.TopEnd }) {
-        Image($r('app.media.wine'))
+        Image(this.getImageSource())
           .width('100%')
           .aspectRatio(this.cardRatio) // 动态宽高比
           .objectFit(ImageFit.Cover)
           .borderRadius({ topLeft: 8, topRight: 8 })
+          .alt($r('app.media.wine'))
         
         // 匹配度标签（右上角）
         if (this.showMatchPercentage && this.recipe.matchPercentage > 0) {
@@ -724,15 +738,28 @@ struct RecipeWaterfallCard {
   @Prop rank: number = 0; // 排名数字
   onTap?: () => void;
   
+  // 默认图片路径（与RecipesPage保持一致）
+  private readonly DEFAULT_WINE_IMAGE: string = '/uploads/cocktails/jiu.jpg';
+  
+  /**
+   * 获取配方图片URL（采用RecipesPage的模式，不使用状态避免闪烁）
+   */
+  private getImageSource(): string {
+    // 优先使用配方的图片，失败则用默认图片
+    const imagePath = this.recipe.image || this.DEFAULT_WINE_IMAGE;
+    return APIService.getInstance().getFullImageUrl(imagePath);
+  }
+  
   build() {
     Column() {
       // 图片区域
       Stack({ alignContent: Alignment.TopStart }) {
-        Image($r('app.media.wine'))
+        Image(this.getImageSource())
           .width('100%')
-          .aspectRatio(this.cardRatio) // 动态宽高比
+          .aspectRatio(this.cardRatio)
           .objectFit(ImageFit.Cover)
           .borderRadius({ topLeft: 8, topRight: 8 })
+          .alt($r('app.media.wine'))
         
         // 热榜排名标签
         if (this.showRank && this.rank > 0 && this.rank <= 3) {
