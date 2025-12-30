@@ -71,7 +71,7 @@ export struct UserProfilePage {
   // 从外部传入的刷新触发器
   @Prop @Watch('onRefreshTriggerChange') refreshTrigger: number = 0;
   @StorageProp('isDarkMode') isDarkMode: boolean = false;
-  
+
   @State isLoggedIn: boolean = false;
   @State userName: string = '未登录';
   @State userRole: string = '';
@@ -82,21 +82,21 @@ export struct UserProfilePage {
   private readonly DEFAULT_AVATAR_PATH = '/uploads/avatars/test.jpg';
   @State showLogin: boolean = false;
   @State showRegister: boolean = false;
-  
+
   // 编辑资料相关状态
   @State showEditProfile: boolean = false;
   @State editNickname: string = '';
   @State editBio: string = '';
   @State isSavingProfile: boolean = false;
-  
+
   // Tab 相关状态
   @State currentTab: ProfileTab = ProfileTab.RECIPES;
-  
+
   // 数据源
   @State recipesDataSource: RecipeDataSource = new RecipeDataSource();
   @State likesDataSource: RecipeDataSource = new RecipeDataSource();
   @State favoritesDataSource: RecipeDataSource = new RecipeDataSource();
-  
+
   // 数据状态
   @State favoritesCount: number = 0;
   @State myRecipesCount: number = 0;
@@ -109,12 +109,12 @@ export struct UserProfilePage {
   @State favoritesError: string = '';
   @State myRecipesError: string = '';
   @State loginStatusDebug: string = '';
-  
+
   // 懒加载标志 - 标记数据是否已加载过
   private hasLoadedRecipes: boolean = false;
   private hasLoadedLikes: boolean = false;
   private hasLoadedFavorites: boolean = false;
-  
+
   // 获取当前主题色
   private getColors(): ThemeColors {
     return this.isDarkMode ? DarkTheme : LightTheme;
@@ -162,14 +162,14 @@ export struct UserProfilePage {
       promptAction.showToast({ message: '头像修改成功' });
 
       // 清理缓存文件 (可选)
-      try { fs.unlinkSync(targetPath); } catch(e) {}
+      try { fs.unlinkSync(targetPath); } catch (e) { }
 
     } catch (error) {
       console.error('[UserProfilePage] 修改头像流程失败:', error);
       promptAction.showToast({ message: '上传失败，请重试' });
     }
   }
-  
+
   // 刷新触发器变化时刷新数据
   onRefreshTriggerChange() {
     console.info('[UserProfilePage] refreshTrigger changed, refreshing...');
@@ -177,18 +177,18 @@ export struct UserProfilePage {
       this.refreshAll();
     }
   }
-  
+
   // 状态变化监听器
   private stateChangeListener = () => {
     this.updateFromAPIService();
   }
-  
+
   // 从 APIService 更新本地状态
   private updateFromAPIService() {
     const apiService = APIService.getInstance();
     const wasLoggedIn = this.isLoggedIn;
     this.isLoggedIn = apiService.isLoggedIn;
-    
+
     if (apiService.currentUser) {
       this.userName = apiService.currentUser.username;
       this.userRole = apiService.currentUser.role;
@@ -210,12 +210,12 @@ export struct UserProfilePage {
       this.signature = '';
     }
     const cacheInfo = apiService.cachedLogin;
-    
+
     // 如果从未登录变为已登录,刷新数据
     if (!wasLoggedIn && this.isLoggedIn) {
       this.refreshAll();
     }
-    
+
     // 如果从已登录变为未登录,清空数据
     if (wasLoggedIn && !this.isLoggedIn) {
       this.clearData();
@@ -226,7 +226,7 @@ export struct UserProfilePage {
     const cacheAge = cacheInfo ? `${Math.floor((Date.now() - cacheInfo.cachedAt) / (60 * 1000))}分钟` : 'N/A';
     // this.loginStatusDebug = `${timestamp}｜前状态 ${wasLoggedIn ? '已登录' : '未登录'} → 当前 ${this.isLoggedIn ? '已登录' : '未登录'}｜缓存 ${cacheLabel}｜缓存龄 ${cacheAge}`;
   }
-  
+
   // 刷新所有数据
   private async refreshAll(force: boolean = false) {
     try {
@@ -243,7 +243,7 @@ export struct UserProfilePage {
       this.hasLoadedFavorites = false;
       this.totalLikesReceived = 0;
     }
-    
+
     // 只加载未加载过的数据
     if (!this.hasLoadedRecipes) {
       this.loadMyRecipes();
@@ -255,7 +255,7 @@ export struct UserProfilePage {
       this.loadLikes();
     }
   }
-  
+
   // 刷新当前 Tab 数据
   private async refreshCurrentTab(force: boolean = false): Promise<void> {
     switch (this.currentTab) {
@@ -273,14 +273,14 @@ export struct UserProfilePage {
         break;
     }
   }
-  
+
   // 清空数据
   private clearData() {
     // 重置懒加载标志
     this.hasLoadedRecipes = false;
     this.hasLoadedLikes = false;
     this.hasLoadedFavorites = false;
-    
+
     this.favoritesCount = 0;
     this.myRecipesCount = 0;
     this.likesCount = 0;
@@ -291,7 +291,7 @@ export struct UserProfilePage {
     this.likesDataSource.clear();
     this.favoritesDataSource.clear();
   }
-  
+
   // 解析数字
   private parseNumber(value: ESObject): number {
     if (typeof value === 'number') {
@@ -303,7 +303,7 @@ export struct UserProfilePage {
     }
     return 0;
   }
-  
+
   // 解析配方数据
   private parseRecipe(item: ESObject): Recipe {
     return {
@@ -318,18 +318,18 @@ export struct UserProfilePage {
       image: (item['image'] || '') as string  // 解析图片路径
     };
   }
-  
+
   // 加载收藏列表
   private async loadFavorites(): Promise<void> {
     this.loadingFavorites = true;
     this.favoritesError = '';
-    
+
     try {
       const apiService = APIService.getInstance();
       const favorites = await apiService.fetchUserFavorites();
       if (Array.isArray(favorites) && favorites.length > 0) {
         this.favoritesCount = favorites.length;
-        
+
         // 获取每个配方的详细信息
         const detailedRecipes: Recipe[] = [];
         for (const item of favorites) {
@@ -357,17 +357,17 @@ export struct UserProfilePage {
       this.hasLoadedFavorites = true;
     }
   }
-  
+
   // 加载点赞列表
   private async loadLikes(): Promise<void> {
     this.isLoading = true;
-    
+
     try {
       const apiService = APIService.getInstance();
       const likes = await apiService.fetchUserLikes();
       if (Array.isArray(likes) && likes.length > 0) {
         this.likesCount = likes.length;
-        
+
         // 获取每个配方的详细信息
         const detailedRecipes: Recipe[] = [];
         for (const item of likes) {
@@ -395,24 +395,24 @@ export struct UserProfilePage {
       this.hasLoadedLikes = true;
     }
   }
-  
+
   // 加载我的配方
   private async loadMyRecipes(): Promise<void> {
     this.loadingMyRecipes = true;
     this.myRecipesError = '';
-    
+
     try {
       const apiService = APIService.getInstance();
       const recipes = await apiService.fetchUserCreatedRecipes();
-      
+
       if (Array.isArray(recipes) && recipes.length > 0) {
         this.myRecipesCount = recipes.length;
-        
+
         // 获取每个配方的详细信息并计算总获赞与收藏
         const detailedRecipes: Recipe[] = [];
         let totalLikes = 0;
         let totalFavorites = 0;
-        
+
         for (const item of recipes) {
           try {
             const recipeId = (item['id'] || '') as string;
@@ -431,7 +431,7 @@ export struct UserProfilePage {
             totalFavorites += parsedRecipe.favoriteCount;
           }
         }
-        
+
         this.recipesDataSource.setData(detailedRecipes);
         this.totalLikesReceived = totalLikes + totalFavorites;
       } else {
@@ -448,7 +448,7 @@ export struct UserProfilePage {
       this.hasLoadedRecipes = true;
     }
   }
-  
+
   // 登出
   private async handleLogout() {
     try {
@@ -458,32 +458,32 @@ export struct UserProfilePage {
       promptAction.showToast({ message: '退出登录失败' });
     }
   }
-  
+
   aboutToAppear() {
     // 初始化时更新状态
     this.updateFromAPIService();
-    
+
     // 注册监听器
     APIService.getInstance().addListener(this.stateChangeListener);
-    
+
     // 如果已登录,加载数据
     if (this.isLoggedIn) {
       this.refreshAll();
     }
   }
-  
+
   aboutToDisappear() {
     // 移除监听器
     APIService.getInstance().removeListener(this.stateChangeListener);
   }
-  
+
   // 每次页面显示时检查登录状态（不再自动刷新数据）
   onPageShow() {
     console.info('[UserProfilePage] onPageShow triggered');
     // 只更新登录状态，不重新加载数据（懒加载）
     this.updateFromAPIService();
   }
-  
+
   build() {
     Stack() {
       Column() {
@@ -496,9 +496,9 @@ export struct UserProfilePage {
         }
       }
       .width('100%')
-      .height('100%')
-      .backgroundColor(this.getColors().background)
-      
+        .height('100%')
+        .backgroundColor(this.getColors().background)
+
       // 登录弹窗
       if (this.showLogin) {
         Column() {
@@ -513,12 +513,12 @@ export struct UserProfilePage {
           })
         }
         .width('100%')
-        .height('100%')
-        .backgroundColor(this.getColors().cardBackground)
-        .transition({ type: TransitionType.Insert, opacity: 0, translate: { y: 1000 } })
-        .transition({ type: TransitionType.Delete, opacity: 0, translate: { y: 1000 } })
+          .height('100%')
+          .backgroundColor(this.getColors().cardBackground)
+          .transition({ type: TransitionType.Insert, opacity: 0, translate: { y: 1000 } })
+          .transition({ type: TransitionType.Delete, opacity: 0, translate: { y: 1000 } })
       }
-      
+
       // 注册弹窗
       if (this.showRegister) {
         Column() {
@@ -533,98 +533,99 @@ export struct UserProfilePage {
           })
         }
         .width('100%')
-        .height('100%')
-        .backgroundColor(this.getColors().cardBackground)
-        .transition({ type: TransitionType.Insert, opacity: 0, translate: { y: 1000 } })
-        .transition({ type: TransitionType.Delete, opacity: 0, translate: { y: 1000 } })
+          .height('100%')
+          .backgroundColor(this.getColors().cardBackground)
+          .transition({ type: TransitionType.Insert, opacity: 0, translate: { y: 1000 } })
+          .transition({ type: TransitionType.Delete, opacity: 0, translate: { y: 1000 } })
       }
-      
+
       // 编辑资料弹窗
       if (this.showEditProfile) {
         this.buildEditProfileSheet()
       }
     }
     .width('100%')
-    .height('100%')
+      .height('100%')
   }
-  
+
   // 未登录视图
   @Builder
   buildLoginPromptView() {
     Column() {
-      Blank()
-      
-        Row({ space: 12 }) {
-          Stack() {
-            // 使用真实头像，加载失败回退默认头像
-            Image(this.avatarUrl || APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH))
-              .width(70)
-              .height(70)
-              .borderRadius(35)
-              .objectFit(ImageFit.Cover)
-              .backgroundColor(this.getColors().divider)
-              .border({ width: 1, color: this.getColors().divider })
-              .onError(() => {
-                const fallback = APIService.getInstance().getFullImageUrl(this.DEFAULT_AVATAR_PATH);
-                if (this.avatarUrl !== fallback) {
-                  this.avatarUrl = fallback;
-                }
-              })
+      // 1. 顶部占位，将内容推向中心偏下
+      Blank().layoutWeight(1)
 
-            if (this.userRole === 'admin') {
-              // 管理员徽章
-              Text('V')
-                .fontSize(10)
-                .fontColor(Color.White)
-                .fontWeight(FontWeight.Bold)
-                .width(18)
-                .height(18)
-                .textAlign(TextAlign.Center)
-                .backgroundColor('#FF3B30')
-                .borderRadius(9)
-                .position({ x: 52, y: 52 })
-            }
-          }
-          .width(70)
-          .height(70)
-          .padding({ left: 32, right: 32 })
-        
-        // 登录注册按钮
-        Column({ space: 12 }) {
-          Button('登录')
-            .width('100%')
-            .height(48)
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .backgroundColor('#007DFF')
-            .borderRadius(12)
-            .onClick(() => {
-              this.showLogin = true;
-            })
-          
-          Button('注册新账号')
-            .width('100%')
-            .height(48)
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .backgroundColor(this.isDarkMode ? 'rgba(0, 125, 255, 0.2)' : 'rgba(0, 125, 255, 0.1)')
-            .fontColor('#007DFF')
-            .borderRadius(12)
-            .onClick(() => {
-              this.showRegister = true;
-            })
+      // 2. 中心内容区
+      Column({ space: 24 }) {
+        // Logo 区域
+        Stack() {
+          Circle()
+            .width(100)
+            .height(100)
+            .fill(this.isDarkMode ? '#1A1A1A' : '#F5F5F5')
+
+          Image($r('sys.symbol.drop'))
+            .width(50)
+            .height(50)
+            .fillColor('#007DFF')
         }
-        .width('100%')
-        .padding({ left: 40, right: 40 })
+        .margin({ bottom: 16 })
+
+        // 欢迎文案
+        Column({ space: 12 }) {
+          Text('登录 Cybar')
+            .fontSize(28)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.getColors().textPrimary)
+
+          Text('探索鸡尾酒的无限可能\n记录你的微醺时刻')
+            .fontSize(15)
+            .fontColor(this.getColors().textSecondary)
+            .textAlign(TextAlign.Center)
+            .lineHeight(24)
+        }
       }
       .width('100%')
-      
-      Blank()
+        .alignItems(HorizontalAlign.Center)
+
+      // 3. 底部按钮区
+      Column({ space: 16 }) {
+        // 登录按钮
+        Button('登录')
+          .width('80%')
+          .height(50)
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .backgroundColor('#007DFF')
+          .type(ButtonType.Capsule)
+          .shadow({ radius: 10, color: 'rgba(0, 125, 255, 0.3)', offsetY: 5 })
+          .onClick(() => {
+            this.showLogin = true;
+          })
+
+        // 注册按钮
+        Button('注册新账号')
+          .width('80%')
+          .height(50)
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .backgroundColor(this.isDarkMode ? '#1A1A1A' : '#F5F5F5')
+          .fontColor(this.getColors().textPrimary)
+          .type(ButtonType.Capsule)
+          .onClick(() => {
+            this.showRegister = true;
+          })
+      }
+      .width('100%')
+        .margin({ top: 60 })
+
+      Blank().layoutWeight(1.5) // 底部留白更多一点，视觉重心上移
     }
-    .layoutWeight(1)
     .width('100%')
+      .height('100%')
+      .backgroundColor(this.getColors().background)
   }
-  
+
   // 已登录视图 - 小红书风格
   @Builder
   buildLoggedInView() {
@@ -635,7 +636,7 @@ export struct UserProfilePage {
         .height(200)
         .objectFit(ImageFit.Cover)
         .position({ x: 0, y: 0 })
-      
+
       // 背景渐变遮罩
       Column()
         .width('100%')
@@ -648,13 +649,13 @@ export struct UserProfilePage {
           ]
         })
         .position({ x: 0, y: 0 })
-      
+
       // 主体内容
       Column() {
         // 顶部工具栏
         Row() {
           Blank()
-          
+
           Row({ space: 16 }) {
             // 设置按钮
             SymbolGlyph($r('sys.symbol.gearshape'))
@@ -670,41 +671,41 @@ export struct UserProfilePage {
           }
         }
         .width('100%')
-        .height(44)
-        .padding({ left: 16, right: 16 })
-        
+          .height(44)
+          .padding({ left: 16, right: 16 })
+          
         // 主体内容 - 下拉刷新
         Refresh({ refreshing: $$this.isRefreshing }) {
           Scroll() {
             Column() {
               // 用户信息区域
               this.buildUserInfoSection()
-              
+
               // Tab 切换栏
               this.buildTabBar()
-              
+
               // 内容列表
               this.buildContentList()
             }
             .width('100%')
           }
           .scrollBar(BarState.Off)
-          .layoutWeight(1)
+            .layoutWeight(1)
         }
         .onRefreshing(async () => {
           // 下拉刷新时强制重新加载当前 Tab 数据
           await this.refreshCurrentTab(true);
           this.isRefreshing = false;
         })
-        .layoutWeight(1)
+          .layoutWeight(1)
       }
       .width('100%')
-      .height('100%')
+        .height('100%')
     }
     .width('100%')
-    .height('100%')
+      .height('100%')
   }
-  
+
   // 用户信息区域
   @Builder
   buildUserInfoSection() {
@@ -723,7 +724,7 @@ export struct UserProfilePage {
             .onError(() => {
               // 头像加载失败，自动使用 .alt() 设置的默认头像
             })
-          
+
           if (this.userRole === 'admin') {
             // 管理员徽章
             Text('V')
@@ -739,8 +740,8 @@ export struct UserProfilePage {
           }
         }
         .width(70)
-        .height(70)
-        
+          .height(70)
+
         // 用户名和简介
         Column({ space: 6 }) {
           Row({ space: 8 }) {
@@ -748,7 +749,7 @@ export struct UserProfilePage {
               .fontSize(22)
               .fontWeight(FontWeight.Bold)
               .fontColor(this.getColors().textPrimary)
-            
+
             if (this.userRole === 'admin') {
               Text('管理员')
                 .fontSize(10)
@@ -759,7 +760,7 @@ export struct UserProfilePage {
             }
           }
           .alignItems(VerticalAlign.Center)
-          
+
           Text(this.userBio)
             .fontSize(13)
             .fontColor(this.getColors().textTertiary)
@@ -767,11 +768,11 @@ export struct UserProfilePage {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
         .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
+          .layoutWeight(1)
       }
       .width('100%')
-      .padding({ left: 16, right: 16 })
-      
+        .padding({ left: 16, right: 16 })
+
       // 统计数据行
       Row() {
         // 获赞与收藏
@@ -780,20 +781,20 @@ export struct UserProfilePage {
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.getColors().textPrimary)
-          
+
           Text('获赞与收藏')
             .fontSize(12)
             .fontColor(this.getColors().textSecondary)
         }
         .layoutWeight(1)
-        
+
         // 分隔线
         Divider()
           .vertical(true)
           .height(30)
           .color(this.getColors().divider)
-        
-        // 编辑资料按钮
+
+        //编辑资料按钮
         Button('编辑资料')
           .fontSize(13)
           .fontColor(this.getColors().textPrimary)
@@ -807,34 +808,34 @@ export struct UserProfilePage {
             this.editBio = this.signature === '这个人很懒，什么都没写' ? '' : this.signature;
             this.showEditProfile = true;
           })
-        
+
         // 设置按钮
-        Button() {
-          SymbolGlyph($r('sys.symbol.gearshape'))
-            .fontSize(16)
-            .fontColor([this.getColors().textPrimary])
-        }
-        .width(32)
-        .height(32)
-        .backgroundColor(this.getColors().secondaryBackground)
-        .borderRadius(16)
-        .margin({ left: 8 })
-        .onClick(() => {
-          router.pushUrl({
-            url: '@bundle:com.example.cybar/entry/ets/pages/SettingsPage'
-          }).catch((error: Error) => {
-            console.error('[UserProfilePage] 跳转设置页面失败:', error);
-          });
-        })
+        // Button() {
+        //   SymbolGlyph($r('sys.symbol.gearshape'))
+        //     .fontSize(16)
+        //     .fontColor([this.getColors().textPrimary])
+        // }
+        // .width(32)
+        // .height(32)
+        // .backgroundColor(this.getColors().secondaryBackground)
+        // .borderRadius(16)
+        // .margin({ left: 8 })
+        // .onClick(() => {
+        //   router.pushUrl({
+        //     url: '@bundle:com.example.cybar/entry/ets/pages/SettingsPage'
+        //   }).catch((error: Error) => {
+        //     console.error('[UserProfilePage] 跳转设置页面失败:', error);
+        //   });
+        // })
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 8 })
-      .justifyContent(FlexAlign.SpaceBetween)
+        .padding({ left: 16, right: 16, top: 8 })
+        .justifyContent(FlexAlign.SpaceBetween)
     }
     .width('100%')
-    .padding({ top: 8, bottom: 16 })
+      .padding({ top: 8, bottom: 16 })
   }
-  
+
   // Tab 切换栏
   @Builder
   buildTabBar() {
@@ -842,15 +843,15 @@ export struct UserProfilePage {
       Row() {
         // 笔记 (我的创作)
         this.buildTabItem('笔记', ProfileTab.RECIPES, this.myRecipesCount)
-        
+
         // 点赞
         this.buildTabItem('点赞', ProfileTab.LIKES, this.likesCount)
-        
+
         // 收藏
         this.buildTabItem('收藏', ProfileTab.FAVORITES, this.favoritesCount)
-        
+
         Blank()
-        
+
         // 搜索按钮
         SymbolGlyph($r('sys.symbol.magnifyingglass'))
           .fontSize(20)
@@ -858,17 +859,17 @@ export struct UserProfilePage {
           .margin({ right: 16 })
       }
       .width('100%')
-      .height(44)
-      .padding({ left: 16 })
-      
+        .height(44)
+        .padding({ left: 16 })
+
       // 底部分隔线
       Divider()
         .color(this.getColors().divider)
     }
     .width('100%')
-    .backgroundColor(this.getColors().cardBackground)
+      .backgroundColor(this.getColors().cardBackground)
   }
-  
+
   // Tab 项
   @Builder
   buildTabItem(title: string, tab: ProfileTab, count: number) {
@@ -878,14 +879,14 @@ export struct UserProfilePage {
           .fontSize(15)
           .fontWeight(this.currentTab === tab ? FontWeight.Bold : FontWeight.Normal)
           .fontColor(this.currentTab === tab ? this.getColors().textPrimary : this.getColors().textSecondary)
-        
+
         if (count > 0) {
           Text(`${count}`)
             .fontSize(12)
             .fontColor(this.getColors().textTertiary)
         }
       }
-      
+
       // 下划线指示器
       if (this.currentTab === tab) {
         Divider()
@@ -896,16 +897,16 @@ export struct UserProfilePage {
       }
     }
     .height('100%')
-    .padding({ right: 24 })
-    .justifyContent(FlexAlign.Center)
-    .onClick(() => {
-      if (this.currentTab !== tab) {
-        this.currentTab = tab;
-        this.refreshCurrentTab();
-      }
-    })
+      .padding({ right: 24 })
+      .justifyContent(FlexAlign.Center)
+      .onClick(() => {
+        if (this.currentTab !== tab) {
+          this.currentTab = tab;
+          this.refreshCurrentTab();
+        }
+      })
   }
-  
+
   // 内容列表
   @Builder
   buildContentList() {
@@ -917,15 +918,15 @@ export struct UserProfilePage {
             .width(40)
             .height(40)
             .color(this.getColors().primary)
-          
+
           Text('加载中...')
             .fontSize(14)
             .fontColor(this.getColors().textSecondary)
             .margin({ top: 12 })
         }
         .width('100%')
-        .height(200)
-        .justifyContent(FlexAlign.Center)
+          .height(200)
+          .justifyContent(FlexAlign.Center)
       } else {
         // 根据当前 Tab 显示对应列表
         if (this.currentTab === ProfileTab.RECIPES) {
@@ -938,9 +939,9 @@ export struct UserProfilePage {
       }
     }
     .width('100%')
-    .backgroundColor(this.getColors().background)
+      .backgroundColor(this.getColors().background)
   }
-  
+
   // 配方网格
   @Builder
   buildRecipeGrid(dataSource: RecipeDataSource, emptyTitle: string, emptySubtitle: string) {
@@ -950,18 +951,18 @@ export struct UserProfilePage {
         SymbolGlyph($r('sys.symbol.doc_text'))
           .fontSize(60)
           .fontColor([this.getColors().textTertiary])
-        
+
         Text(emptyTitle)
           .fontSize(16)
           .fontColor(this.getColors().textSecondary)
-        
+
         Text(emptySubtitle)
           .fontSize(13)
           .fontColor(this.getColors().textTertiary)
       }
       .width('100%')
-      .height(250)
-      .justifyContent(FlexAlign.Center)
+        .height(250)
+        .justifyContent(FlexAlign.Center)
     } else {
       // 使用 Grid 布局替代 WaterFlow，避免嵌套滚动问题
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
@@ -970,22 +971,22 @@ export struct UserProfilePage {
             this.buildRecipeCard(recipe)
           }
           .width('48%')
-          .margin({ bottom: 12 })
+            .margin({ bottom: 12 })
         }, (recipe: Recipe) => recipe.id)
       }
       .padding({ left: 12, right: 12, top: 12, bottom: 80 })
-      .width('100%')
+        .width('100%')
     }
   }
-  
+
   // 配方卡片
   @Builder
   buildRecipeCard(recipe: Recipe) {
     Column() {
       // 配方图片
       Stack() {
-        Image(recipe.image && recipe.image.length > 0 ? 
-          APIService.getInstance().getFullImageUrl(recipe.image) : 
+        Image(recipe.image && recipe.image.length > 0 ?
+          APIService.getInstance().getFullImageUrl(recipe.image) :
           $r('app.media.wine'))
           .width('100%')
           .height(140)
@@ -995,7 +996,7 @@ export struct UserProfilePage {
           .onError(() => {
             // 图片加载失败，自动使用 .alt() 设置的默认图片
           })
-        
+
         // ABV 标签
         if (recipe.estimatedAbv > 0) {
           Text(`${recipe.estimatedAbv.toFixed(1)}%`)
@@ -1009,7 +1010,7 @@ export struct UserProfilePage {
         }
       }
       .width('100%')
-      
+
       // 配方信息
       Column({ space: 4 }) {
         Text(recipe.name)
@@ -1019,23 +1020,23 @@ export struct UserProfilePage {
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
-        
+
         Row({ space: 8 }) {
           Row({ space: 2 }) {
             SymbolGlyph($r('sys.symbol.heart_fill'))
               .fontSize(12)
               .fontColor(['#ffff0000'])
-            
+
             Text(`${recipe.likeCount}`)
               .fontSize(11)
               .fontColor(this.getColors().textTertiary)
           }
-          
+
           Row({ space: 2 }) {
             SymbolGlyph($r('sys.symbol.star_fill'))
               .fontSize(12)
               .fontColor(['#FFB800'])
-            
+
             Text(`${recipe.favoriteCount}`)
               .fontSize(11)
               .fontColor(this.getColors().textTertiary)
@@ -1066,23 +1067,23 @@ export struct UserProfilePage {
         }
       }
       .width('100%')
-      .padding(8)
-      .alignItems(HorizontalAlign.Start)
+        .padding(8)
+        .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
-    .backgroundColor(this.getColors().cardBackground)
-    .borderRadius(8)
-    .shadow({ radius: 2, color: this.isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.05)', offsetY: 1 })
-    .onClick(() => {
-      router.pushUrl({
-        url: 'pages/RecipeDetailPage',
-        params: { recipeId: recipe.id }
-      }).catch((error: Error) => {
-        console.error('[UserProfilePage] 跳转配方详情失败:', error);
-      });
-    })
+      .backgroundColor(this.getColors().cardBackground)
+      .borderRadius(8)
+      .shadow({ radius: 2, color: this.isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.05)', offsetY: 1 })
+      .onClick(() => {
+        router.pushUrl({
+          url: 'pages/RecipeDetailPage',
+          params: { recipeId: recipe.id }
+        }).catch((error: Error) => {
+          console.error('[UserProfilePage] 跳转配方详情失败:', error);
+        });
+      })
   }
-  
+
   // 编辑资料弹窗
   @Builder
   buildEditProfileSheet() {
@@ -1097,7 +1098,7 @@ export struct UserProfilePage {
             this.showEditProfile = false;
           }
         })
-      
+
       // 底部弹出面板
       Column() {
         // 顶部拖动条
@@ -1109,9 +1110,9 @@ export struct UserProfilePage {
             .borderRadius(2)
         }
         .width('100%')
-        .justifyContent(FlexAlign.Center)
-        .padding({ top: 12, bottom: 16 })
-        
+          .justifyContent(FlexAlign.Center)
+          .padding({ top: 12, bottom: 16 })
+
         // 标题栏
         Row() {
           Text('取消')
@@ -1122,16 +1123,16 @@ export struct UserProfilePage {
                 this.showEditProfile = false;
               }
             })
-          
+
           Blank()
-          
+
           Text('编辑资料')
             .fontSize(17)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.getColors().textPrimary)
-          
+
           Blank()
-          
+
           if (this.isSavingProfile) {
             LoadingProgress()
               .width(20)
@@ -1148,8 +1149,8 @@ export struct UserProfilePage {
           }
         }
         .width('100%')
-        .padding({ left: 16, right: 16, bottom: 20 })
-        
+          .padding({ left: 16, right: 16, bottom: 20 })
+
         // 头像区域
         Column({ space: 8 }) {
           Stack() {
@@ -1165,7 +1166,7 @@ export struct UserProfilePage {
               .onError(() => {
                 // 头像加载失败，自动使用 .alt() 设置的默认头像
               })
-            
+
             // 编辑图标
             Column() {
               SymbolGlyph($r('sys.symbol.camera_fill'))
@@ -1173,26 +1174,26 @@ export struct UserProfilePage {
                 .fontColor([Color.White])
             }
             .width(28)
-            .height(28)
-            .backgroundColor('rgba(0, 0, 0, 0.6)')
-            .borderRadius(14)
-            .justifyContent(FlexAlign.Center)
-            .position({ x: 52, y: 52 })
+              .height(28)
+              .backgroundColor('rgba(0, 0, 0, 0.6)')
+              .borderRadius(14)
+              .justifyContent(FlexAlign.Center)
+              .position({ x: 52, y: 52 })
           }
           .width(80)
-          .height(80)
-          
+            .height(80)
+
           Text('点击更换头像')
             .fontSize(13)
             .fontColor(this.getColors().textTertiary)
         }
         .width('100%')
-        .padding({ bottom: 24 })
-        .onClick(() => {
-          // ✅ [核心修改] 调用真实的上传头像功能
-          this.handleAvatarClick();
-        })
-        
+          .padding({ bottom: 24 })
+          .onClick(() => {
+            // ✅ [核心修改] 调用真实的上传头像功能
+            this.handleAvatarClick();
+          })
+
         // 表单区域
         Column({ space: 0 }) {
           // 昵称输入
@@ -1201,32 +1202,38 @@ export struct UserProfilePage {
               .fontSize(15)
               .fontColor(this.getColors().textPrimary)
               .width(70)
-            
+
             TextInput({ text: this.editNickname, placeholder: '请输入昵称' })
               .fontSize(15)
-              .fontColor(this.getColors().textPrimary)
+              .fontColor(this.getColors().textSecondary) // 变灰表示不可修改
               .placeholderColor(this.getColors().textTertiary)
               .backgroundColor(Color.Transparent)
               .layoutWeight(1)
+              .enabled(false) // 暂时禁用昵称修改
               .onChange((value: string) => {
                 this.editNickname = value;
               })
+
+            // 锁图标提示
+            SymbolGlyph($r('sys.symbol.lock_fill'))
+              .fontSize(16)
+              .fontColor([this.getColors().textTertiary])
           }
           .width('100%')
-          .height(52)
-          .padding({ left: 16, right: 16 })
-          
+            .height(52)
+            .padding({ left: 16, right: 16 })
+
           Divider()
             .color(this.getColors().divider)
             .margin({ left: 16 })
-          
+
           // 简介输入
           Row() {
             Text('简介')
               .fontSize(15)
               .fontColor(this.getColors().textPrimary)
               .width(70)
-            
+
             TextInput({ text: this.editBio, placeholder: '介绍一下自己吧' })
               .fontSize(15)
               .fontColor(this.getColors().textPrimary)
@@ -1238,67 +1245,67 @@ export struct UserProfilePage {
               })
           }
           .width('100%')
-          .height(52)
-          .padding({ left: 16, right: 16 })
+            .height(52)
+            .padding({ left: 16, right: 16 })
         }
         .width('100%')
-        .backgroundColor(this.getColors().cardBackground)
-        .borderRadius(12)
-        .margin({ left: 16, right: 16 })
-        
+          .backgroundColor(this.getColors().cardBackground)
+          .borderRadius(12)
+          .margin({ left: 16, right: 16 })
+
         // 提示文字
         Text('昵称和简介将展示在你的个人主页')
           .fontSize(12)
           .fontColor(this.getColors().textTertiary)
           .margin({ top: 12, left: 16 })
           .width('100%')
-        
+
         Blank()
       }
       .width('100%')
-      .height('70%')
-      .backgroundColor(this.getColors().background)
-      .borderRadius({ topLeft: 16, topRight: 16 })
-      .position({ y: '30%' })
+        .height('70%')
+        .backgroundColor(this.getColors().background)
+        .borderRadius({ topLeft: 16, topRight: 16 })
+        .position({ y: '30%' })
     }
     .width('100%')
-    .height('100%')
-    .transition({ type: TransitionType.Insert, opacity: 0 })
-    .transition({ type: TransitionType.Delete, opacity: 0 })
+      .height('100%')
+      .transition({ type: TransitionType.Insert, opacity: 0 })
+      .transition({ type: TransitionType.Delete, opacity: 0 })
   }
-  
+
   // 保存用户资料
   private async saveProfile(): Promise<void> {
     if (this.isSavingProfile) {
       return;
     }
-    
+
     // 验证输入
     if (this.editNickname.trim().length === 0) {
       promptAction.showToast({ message: '昵称不能为空' });
       return;
     }
-    
+
     if (this.editNickname.trim().length > 20) {
       promptAction.showToast({ message: '昵称不能超过20个字符' });
       return;
     }
-    
+
     if (this.editBio.length > 50) {
       promptAction.showToast({ message: '简介不能超过50个字符' });
       return;
     }
-    
+
     this.isSavingProfile = true;
-    
+
     try {
       const apiService = APIService.getInstance();
       // 调用 API 更新用户资料
       await apiService.updateUserProfile(this.editNickname.trim(), this.editBio.trim());
-      
+
       // ✅ 保存成功后，重新从服务器获取最新数据
       await apiService.fetchCurrentUser();
-      
+
       // 本地状态会通过 stateChangeListener 自动更新
       promptAction.showToast({ message: '保存成功' });
       this.showEditProfile = false;
@@ -1310,6 +1317,6 @@ export struct UserProfilePage {
       this.isSavingProfile = false;
     }
   }
-  
+
   // 退出登录菜单（在设置中处理）
 }
