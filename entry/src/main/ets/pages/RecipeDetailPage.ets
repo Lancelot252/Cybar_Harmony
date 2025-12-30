@@ -565,7 +565,6 @@ struct RecipeDetailPage {
             .margin({ top: 16 })
         }
         .width('100%')
-        .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else if (this.errorMessage) {
         // 错误状态
@@ -589,7 +588,6 @@ struct RecipeDetailPage {
             })
         }
         .width('100%')
-        .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else if (this.recipe) {
         // 内容展示
@@ -656,28 +654,16 @@ struct RecipeDetailPage {
       .backgroundColor(Color.White)
       .shadow({ radius: 10, color: '#10000000', offsetY: -2 })
     }
+
+    // 轻量底部评论浮层：不使用 Sheet，避免类型/偏移问题
+    if (this.showComments) {
+      this.buildCommentsOverlay();
+    }
   }
   .width('100%')
   .height('100%')
   .backgroundColor('#F5F5F5')
-  .bindSheet($$this.showComments, this.buildCommentsSheet(), {
-      height: SheetSize.LARGE,
-      // showClose: false,
-      dragBar: true,
-      backgroundColor: Color.White,
-      onDisappear: () => {
-        this.showComments = false;
-      }
-    })
-    .bindSheet($$this.showAIAnalysis, this.buildAIAnalysisSheet(), {
-      height: SheetSize.LARGE,
-      // showClose: false,
-      dragBar: true,
-      backgroundColor: Color.White,
-      onDisappear: () => {
-        this.showAIAnalysis = false;
-      }
-    })
+    // 取消 bindSheet，改为自定义底部浮层
   }
 
   /**
@@ -1187,7 +1173,7 @@ struct RecipeDetailPage {
       .width('100%')
       .height(56)
       .padding({ left: 16, right: 8 })
-      .borderRadius({ topLeft: 16, topRight: 16 })
+      // 顶部圆角由 bindSheet 提供，这里不再设置
       
       Divider()
       
@@ -1277,7 +1263,6 @@ struct RecipeDetailPage {
           }, (comment: Comment) => comment.id)
         }
         .width('100%')
-        .layoutWeight(1)
         .padding({ left: 16, right: 16, top: 12, bottom: 12 })
         .scrollBar(BarState.Auto)
       }
@@ -1352,8 +1337,34 @@ struct RecipeDetailPage {
       }
     }
     .width('100%')
-    .height('100%')
     .backgroundColor(Color.White)
+  }
+
+  /**
+   * 轻量底部评论浮层（避免 Sheet 布局冲突）
+   */
+  @Builder
+  buildCommentsOverlay() {
+    // 半透明背景点击关闭
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column() // 使用 Column 作为遮罩容器，避免 Blank 嵌套限制
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#66000000')
+        .onClick(() => { this.showComments = false; })
+
+      // 底部面板
+      Column() {
+        this.buildCommentsSheet();
+      }
+      .width('100%')
+      .backgroundColor(Color.White)
+      .borderRadius({ topLeft: 16, topRight: 16 })
+      .shadow({ radius: 8, color: '#1A000000', offsetY: -2 })
+      .height(520) // 固定高度，避免百分比测量问题
+    }
+    .width('100%')
+    .height('100%')
   }
 
   /**
