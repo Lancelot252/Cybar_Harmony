@@ -141,6 +141,8 @@ export struct RecipesPage {
   @State showFilterPanel: boolean = false;     // 是否显示筛选面板
   @State allRecipes: Recipe[] = [];            // 存储所有配方(用于前端过滤)
   @State sortType: string = 'default';
+  @State indicatorOffset: number = 0;  // 指示条偏移量
+  @State indicatorWidth: number = 0;   // 指示条宽度
   
   private pageSize: number = 10; 
   private categoryScroller: Scroller = new Scroller();
@@ -285,6 +287,8 @@ export struct RecipesPage {
   private async handlePullRefresh(): Promise<void> {
     try {
       console.info('[RecipesPage] 开始下拉刷新');
+      // 下拉刷新时重置分类为"全部",避免过滤后无数据
+      this.selectedCategory = 'all';
       await this.fetchRecipes(true);
     } catch (error) {
       console.error('[RecipesPage] 下拉刷新失败:', error);
@@ -479,33 +483,100 @@ export struct RecipesPage {
     });
   }
   
-  // 分类栏组件
+  // 分类栏组件 - 增强版带动画
   @Builder CategoryBar() {
-    Scroll(this.categoryScroller) {
-      Row({ space: 16 }) {
-        ForEach(this.categories, (category: CategoryConfig, index: number) => {
-          Text(category.name)
-            .fontSize(this.selectedCategory === category.id ? 16 : 14)
-            .fontColor(this.selectedCategory === category.id 
-              ? this.getColors().textPrimary
-              : this.getColors().textTertiary)
-            .fontWeight(this.selectedCategory === category.id 
-              ? FontWeight.Bold 
-              : FontWeight.Normal)
-            .padding({ left: 8, right: 8, top: 8, bottom: 10 })
-            .animation({
-              duration: 200,
-              curve: Curve.EaseInOut
-            })
-            .onClick(() => this.onCategoryChange(category.id, index))
-        })
+    Stack({ alignContent: Alignment.BottomStart }) {
+      Scroll(this.categoryScroller) {
+        Row({ space: 16 }) {
+          ForEach(this.categories, (category: CategoryConfig, index: number) => {
+            Column() {
+              Text(category.name)
+                .fontSize(this.selectedCategory === category.id ? 16 : 14)
+                .fontColor(this.selectedCategory === category.id 
+                  ? this.getColors().textPrimary
+                  : this.getColors().textTertiary)
+                .fontWeight(this.selectedCategory === category.id 
+                  ? FontWeight.Bold 
+                  : FontWeight.Normal)
+                .padding({ left: 8, right: 8, top: 8, bottom: 10 })
+                .scale({ 
+                  x: this.selectedCategory === category.id ? 1.05 : 1.0,
+                  y: this.selectedCategory === category.id ? 1.05 : 1.0
+                })
+                .animation({
+                  duration: 300,
+                  curve: Curve.Friction,
+                  playMode: PlayMode.Normal
+                })
+                .onClick(() => {
+                  // 添加点击动画效果
+                  animateTo({
+                    duration: 300,
+                    curve: Curve.Friction,
+                  }, () => {
+                    this.onCategoryChange(category.id, index);
+                  });
+                })
+            }
+            .id(`category_${index}`)
+          })
+        }
+        .padding({ left: 16, right: 16 })
       }
-      .padding({ left: 16, right: 16 })
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .height(44)
+      
+      // 动态指示条 - 改进定位算法
+      Row()
+        .width(this.getIndicatorWidth())
+        .height(3)
+        .backgroundColor('#1890FF')
+        .borderRadius(2)
+        .margin({ left: this.getIndicatorOffset() })
+        .animation({
+          duration: 300,
+          curve: Curve.Friction,
+          playMode: PlayMode.Normal
+        })
     }
-    .scrollable(ScrollDirection.Horizontal)
-    .scrollBar(BarState.Off)
     .width('100%')
     .height(44)
+  }
+  
+  // 计算指示条宽度
+  private getIndicatorWidth(): number {
+    const selectedIndex = this.categories.findIndex(c => c.id === this.selectedCategory);
+    if (selectedIndex < 0) return 40;
+    
+    const category = this.categories[selectedIndex];
+    // 根据文字长度估算宽度: 中文字符约14px,加上padding
+    const textWidth = category.name.length * 15;
+    return Math.max(textWidth, 30);
+  }
+  
+  // 计算指示条偏移
+  private getIndicatorOffset(): number {
+    const selectedIndex = this.categories.findIndex(c => c.id === this.selectedCategory);
+    if (selectedIndex < 0) return 16;
+    
+    // 左侧padding
+    let offset = 27;
+    
+    // 累加前面所有分类的宽度
+    for (let i = 0; i < selectedIndex; i++) {
+      const cat = this.categories[i];
+      const textWidth = cat.name.length * 15 + 16; // 文字宽度 + 左右padding
+      offset += textWidth + 16; // 加上间距
+    }
+    
+    // 当前分类的padding和居中偏移
+    const currentTextWidth = this.categories[selectedIndex].name.length * 15;
+    offset += 8; // 左padding
+    offset += (currentTextWidth - this.getIndicatorWidth()) / 2; // 居中
+    
+    return offset;
   }
   
   // 筛选面板组件
@@ -536,7 +607,7 @@ export struct RecipesPage {
                   : this.getColors().textPrimary)
                 .padding({ left: 12, right: 12, top: 6, bottom: 6 })
                 .backgroundColor(this.selectedAbvRange === range.id
-                  ? '#FF6B00'
+                  ? '#1890FF'
                   : (this.isDarkMode ? '#2A2A2A' : '#F5F5F5'))
                 .borderRadius(4)
                 .onClick(() => this.onAbvRangeChange(range.id))
@@ -562,7 +633,7 @@ export struct RecipesPage {
                   : this.getColors().textPrimary)
                 .padding({ left: 12, right: 12, top: 6, bottom: 6 })
                 .backgroundColor(this.sortType === option.id
-                  ? '#FF6B00'
+                  ? '#1890FF'
                   : (this.isDarkMode ? '#2A2A2A' : '#F5F5F5'))
                 .borderRadius(4)
                 .onClick(() => this.onSortChange(option.id))
@@ -584,7 +655,7 @@ export struct RecipesPage {
           Button('确定')
             .fontSize(14)
             .fontColor('#FFFFFF')
-            .backgroundColor('#FF6B00')
+            .backgroundColor('#1890FF')
             .layoutWeight(1)
             .onClick(() => this.showFilterPanel = false)
         }
@@ -616,7 +687,11 @@ export struct RecipesPage {
             .fontSize(22)
             .fontColor([this.getColors().textPrimary])
             .margin({ right: 12 })
-            .onClick(() => this.showFilterPanel = true)
+            .onClick(() => {
+              this.selectedCategory = 'all';  // 重置基酒分类为"全部"
+              this.applyFilters();  // 应用筛选
+              this.showFilterPanel = true;
+            })
           
           SymbolGlyph($r('sys.symbol.magnifyingglass'))
             .fontSize(22)
@@ -767,8 +842,8 @@ struct RecipeCard {
           Text(`${this.recipe.estimatedAbv.toFixed(0)}%`)
             .fontSize(13)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#FF6B00')
-            .backgroundColor(this.isDarkMode ? '#3D2A1A' : '#FFF0E0')
+            .fontColor('#1890FF')
+            .backgroundColor(this.isDarkMode ? '#1A2F3D' : '#E6F4FF')
             .padding({ left: 6, right: 6, top: 2, bottom: 2 })
             .borderRadius(4)
             .flexShrink(0)
